@@ -3,6 +3,7 @@ UI events run in tests/m4emu.py against the key queue and the reply sender model
 the build on the stock firmware."""
 import os
 import struct
+from types import SimpleNamespace
 
 import msgpack
 import pytest
@@ -261,6 +262,39 @@ def test_each_control_has_its_key_or_knob_event():
     i.turn('knob3', -4)
     i.turn('knob3', 0)
     assert [e for kind, e in log if kind == 'send'] == [bytes([2, 2, 0, 0]) + struct.pack('<i', -4)]
+
+
+def test_xl_input_uses_the_connected_units_control_map():
+    ctl = FakeCtl()
+    ctl.link = SimpleNamespace(dev=SimpleNamespace(idProduct=hi.PID_HX_STOMP_XL))
+    unit = hi.Input(ctl, sleep=lambda _: None)
+    unit.press('fs1+fs8')
+    unit.touch('fs1+fs6')
+    unit.turn('knob3', -4)
+    assert [blob for _, blob in ctl.log] == [
+        hi.event(1, 17, 1) + hi.event(1, 24, 1),
+        hi.event(1, 17, 2) + hi.event(1, 24, 2) + hi.event(1, 17, 3) + hi.event(1, 24, 3),
+        hi.event(1, 9, 1) + hi.event(1, 14, 1),
+        hi.event(1, 9, 2) + hi.event(1, 14, 2),
+        hi.event(2, 2, -4),
+    ]
+    with pytest.raises(ValueError, match='fs7 has no touch'):
+        unit.touch('fs7')
+
+
+def test_connected_stomp_uses_its_original_footswitch_codes():
+    ctl = FakeCtl()
+    ctl.link = SimpleNamespace(dev=SimpleNamespace(idProduct=hi.PID_HX_STOMP))
+    unit = hi.Input(ctl, sleep=lambda _: None)
+    unit.press('fs2')
+    assert [blob for _, blob in ctl.log] == [FS2_DOWN, FS2_UP + hi.event(1, 13, 3)]
+
+
+def test_input_rejects_unknown_connected_device():
+    ctl = FakeCtl()
+    ctl.link = SimpleNamespace(dev=SimpleNamespace(idProduct=0x1234))
+    with pytest.raises(ValueError, match='unsupported USB product id'):
+        hi.Input(ctl)
 
 
 def test_a_control_with_no_such_event_is_refused():

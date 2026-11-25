@@ -13,6 +13,7 @@ SETTINGS = (
                                        b'Rainbow'), default=10),
     Setting('motion', b'Type', (b'Off', b'Steady', b'Breathe', b'Cylon', b'Comet', b'Heart', b'Sparkle'), default=2),
     Setting('speed', b'Speed', tuple(str(n).encode() for n in range(1, 11)) + (b'Tempo',), default=3),
+    Setting('thickness', b'Thick', (b'Normal', b'+1 px', b'+2 px', b'+3 px', b'+4 px')),
 )
 
 HOME_PAINT_LIT, HOME_PAINT = 0x28d96e28, 0x28dc8d39                  # the Home view's paint function, as registered

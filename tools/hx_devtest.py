@@ -387,9 +387,9 @@ def taps(u, fs, bpm, n=4):
         t0 = time.monotonic() + 0.1
         for k in range(n):
             time.sleep(max(0.0, t0 + k * 60 / bpm - time.monotonic()))
-            u.input.send(hx_input.key(fs, hx_input.PRESS))
+            u.input.send(u.input.key(fs, hx_input.PRESS))
             time.sleep(0.03)
-            u.input.send(hx_input.key(fs, hx_input.RELEASE), hx_input.key(fs, hx_input.RELEASED))
+            u.input.send(u.input.key(fs, hx_input.RELEASE), u.input.key(fs, hx_input.RELEASED))
     u.s.wait(0.6)
 
 
@@ -554,13 +554,13 @@ def foot_hold(u, fs, seconds=1.5, look=None, settle=SETTLE):
     """fs held as a foot holds it, its touch sensor with the press and both their holds after 1 s (hx_input.hold sends no touch);
     look() runs just after the holds."""
     i = u.input
-    i.send(hx_input.key(fs, hx_input.PRESS, 'touch'), hx_input.key(fs, hx_input.PRESS))
+    i.send(i.key(fs, hx_input.PRESS, 'touch'), i.key(fs, hx_input.PRESS))
     u.s.wait(hx_input.HOLD_S)
-    i.send(hx_input.key(fs, hx_input.HOLD, 'touch'), hx_input.key(fs, hx_input.HOLD))
+    i.send(i.key(fs, hx_input.HOLD, 'touch'), i.key(fs, hx_input.HOLD))
     if look:
         look()
     u.s.wait(max(0.0, seconds - hx_input.HOLD_S))
-    i.send(hx_input.key(fs, hx_input.RELEASE), hx_input.key(fs, hx_input.RELEASE, 'touch'))
+    i.send(i.key(fs, hx_input.RELEASE), i.key(fs, hx_input.RELEASE, 'touch'))
     u.s.wait(settle)
 
 
@@ -664,15 +664,15 @@ def t_global_eq(u):
         u.press('view', settle=0.6)
         i = u.input
         for _ in range(8):                      # the stock prompt is only for a block a footswitch can take: not Input or Output
-            i.send(hx_input.key(fs, hx_input.PRESS, 'touch'))
+            i.send(i.key(fs, hx_input.PRESS, 'touch'))
             u.s.wait(hx_input.HOLD_S)
-            i.send(hx_input.key(fs, hx_input.HOLD, 'touch'))
+            i.send(i.key(fs, hx_input.HOLD, 'touch'))
             try:
                 u.see('assign', timeout=1.5)
                 asked = True
             except Fail:
                 asked = False
-            i.send(hx_input.key(fs, hx_input.RELEASE, 'touch'))
+            i.send(i.key(fs, hx_input.RELEASE, 'touch'))
             if asked:
                 break
             u.turn('knob4', 1, settle=0.6)

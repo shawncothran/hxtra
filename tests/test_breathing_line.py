@@ -26,7 +26,7 @@ SINE = [round(127.5 + 127.5 * math.sin(2 * math.pi * a / 256)) for a in range(25
 
 def test_settings_values_defaults_and_ids():
     s = {x.key: x for x in bl.SETTINGS}
-    assert [x.label for x in bl.SETTINGS] == [b'Color', b'Type', b'Speed'], 'one line: a 2-line label shows its name above its page'
+    assert [x.label for x in bl.SETTINGS] == [b'Color', b'Type', b'Speed', b'Thick'], 'one line: a 2-line label shows its name above its page'
     assert s['color'].values == (b'White', b'Red', b'Green', b'Blue', b'Fire', b'Ice', b'Sunset', b'Ocean', b'Aurora', b'Neon',
                                  b'Rainbow')
     assert s['color'].values[s['color'].default] == b'Rainbow' and len(s['color'].values) == len(SCHEMES) + 1
@@ -34,10 +34,14 @@ def test_settings_values_defaults_and_ids():
     assert s['motion'].values[s['motion'].default] == b'Breathe'
     assert s['speed'].values == tuple(str(n).encode() for n in range(1, 11)) + (b'Tempo',)
     assert s['speed'].values[s['speed'].default] == b'4'
+    assert s['thickness'].values == (b'Normal', b'+1 px', b'+2 px', b'+3 px', b'+4 px')
+    assert s['thickness'].default == 0
     ids = setting_ids.by_name()
-    assert (ids['breathing_line.color'], ids['breathing_line.motion'], ids['breathing_line.speed']) == (0xd7, 0xd8, 0xd9)
+    assert (ids['breathing_line.color'], ids['breathing_line.motion'], ids['breathing_line.speed'],
+            ids['breathing_line.thickness']) == (0xd7, 0xd8, 0xd9, 0xe9)
     fields = {who: (cid, bit, bits) for _, cid, bit, bits, who, _ in setting_ids.VIRTUAL}
-    assert [fields[f'breathing_line.{k}'] for k in ('color', 'motion', 'speed')] == [(109, 0, 4), (109, 4, 4), (109, 8, 4)]
+    assert [fields[f'breathing_line.{k}'] for k in ('color', 'motion', 'speed', 'thickness')] == [
+        (109, 0, 4), (109, 4, 4), (109, 8, 4), (109, 12, 4)]
     assert bl.FLAG == 'HX_BREATHING_LINE'
 
 
@@ -247,7 +251,7 @@ def colour(scheme, strip, t16, lvl):
 MOD = 0x28e60000
 SEGMENTS, NODES = 0x2812a594, 0x2812b000
 REDRAW, GET_VALUE, CLOCK, LOCK, UNLOCK, FILL = 0x28db8508, 0x28e1f844, 0x28da6458, 0x28e24970, 0x28e24ae8, 0x100017e8
-IDS = {'color': 0xd7, 'motion': 0xd8, 'speed': 0xd9}
+IDS = {'color': 0xd7, 'motion': 0xd8, 'speed': 0xd9, 'thickness': 0xe9}
 START_MS = 2000                     # the line starts this long after the first Home paint
 _code = {}
 
@@ -579,6 +583,44 @@ def test_line_holds_still_while_a_gr_meter_shows(line_gr):
     assert ticks(line_gr, 100) == 0, 'no repaints while it holds'
     line_gr.m.u32(GR_SHOWN, 0)
     assert len(line_gr.paint(motion=3)) == 80 and line_gr.data(0) == 1
+
+
+@pytest.mark.parametrize('fixture', ['line', 'line_xl'])
+@pytest.mark.parametrize('value', [1, 2, 3, 4])
+def test_thickness_changes_the_rendered_line(request, fixture, value):
+    line = request.getfixturevalue(fixture)
+    fills = line.paint(motion=1, color=0, speed=0, thickness=value)
+    assert len(fills) == 80
+    assert {fill[4] for fill in fills} == {(2 if fixture == 'line_xl' else 1) + value}
+
+
+@pytest.mark.parametrize('fixture', ['line', 'line_xl'])
+@pytest.mark.parametrize('next_motion,next_thickness', [(0, 4), (1, 0), (1, 1)])
+def test_extra_thickness_is_removed_after_a_change(request, fixture, next_motion, next_thickness):
+    line = request.getfixturevalue(fixture)
+    framebuffer = 0x28a00000
+    background = 0x1234
+    line.m.write(framebuffer, struct.pack('<H', background) * (320 * 240))
+
+    def fill(machine):
+        x, top, width = machine.reg('r1'), machine.reg('r2'), machine.reg('r3')
+        height, color, _ = machine.stack_args(3)
+        pixel = ((color >> 3) & 31) << 11 | ((color >> 10) & 63) << 5 | ((color >> 19) & 31)
+        for column in range(x, x + width):
+            for row in range(top - height + 1, top + 1):
+                machine.write(framebuffer + 2 * (240 * column + row), struct.pack('<H', pixel))
+
+    line.m.stub(FILL, fill)
+    line.paint(fb=framebuffer, motion=1, color=0, speed=0, thickness=4)
+    top = 120 if fixture == 'line_xl' else 0x77
+    updated = framebuffer + 2 * (240 * 100 + top - 3)
+    line.m.write(updated, struct.pack('<H', 0x5678))
+    line.paint(fb=framebuffer, motion=next_motion, color=0, speed=0, thickness=next_thickness)
+    for row in range(top - 5, top - 1):
+        if next_motion and row >= top - ((2 if fixture == 'line_xl' else 1) + next_thickness) + 1:
+            continue
+        expected = 0x5678 if row == top - 3 else background
+        assert struct.unpack('<H', line.m.read(framebuffer + 2 * (240 * 100 + row), 2))[0] == expected
 
 
 def ticks(line, n):
