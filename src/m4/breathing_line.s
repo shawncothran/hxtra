@@ -265,9 +265,15 @@ bl_xl_widget_ready:
     str r0, [sp]
     cbz r1, bl_draw_strip
     mov r3, r0
-    mov r0, r4
     mov r1, r5
     ldr.w r2, [r11, #8]
+.if LINE_XL
+    ldr r0, [sp, #16]
+    cbnz r0, bl_thick_y_ready
+    adds r2, #LINE_PLAY_Y_OFFSET
+bl_thick_y_ready:
+.endif
+    mov r0, r4
     ldr r12, [sp, #4]
     bl bl_save_thick
 bl_draw_strip:

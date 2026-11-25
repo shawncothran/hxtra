@@ -603,8 +603,12 @@ def test_thickness_applies_in_each_added_view(request, fixture, view):
         line.segment(1, h=2)
     fills = line.paint(motion=1, color=0, speed=0, thickness=3, view=view)
     assert len(fills) == 80
-    assert {fill[4] for fill in fills if fill[1] < 80 or fill[1] >= 160} == {4}
-    assert {fill[4] for fill in fills if 80 <= fill[1] < 160} == {5}
+    selected_start, selected_end = (240, 320) if fixture == 'line_xl' else (80, 160)
+    assert {fill[4] for fill in fills if not selected_start <= fill[1] < selected_end} == {4}
+    assert {fill[4] for fill in fills if selected_start <= fill[1] < selected_end} == {5}
+    if fixture == 'line_xl':
+        assert {fill[2] for fill in fills if fill[1] < selected_start} == {156}
+        assert {fill[2] for fill in fills if fill[1] >= selected_start} == {155}
 
 
 @pytest.mark.parametrize('fixture', ['line', 'line_xl'])
