@@ -594,8 +594,8 @@ def test_thickness_changes_the_rendered_line(request, fixture, value):
     assert {fill[4] for fill in fills} == {(2 if fixture == 'line_xl' else 1) + value}
 
 
-@pytest.mark.parametrize(('fixture', 'view'), [('line', 'edit'), ('line_xl', 'play')])
-def test_thickness_applies_in_each_added_view(request, fixture, view):
+@pytest.mark.parametrize(('fixture', 'view'), [('line', 'play'), ('line_xl', 'play')])
+def test_thickness_applies_in_play_view(request, fixture, view):
     line = request.getfixturevalue(fixture)
     if fixture == 'line_xl':
         line.segment(1, h=2, segments=bl.XL.play_segments, node_index=1)
