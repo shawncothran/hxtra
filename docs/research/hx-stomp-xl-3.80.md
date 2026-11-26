@@ -4,7 +4,7 @@
 
 ## Entry payloads
 
-Payload sizes are read from each stock `.hxf`'s L6IA entries (`tools/hxf_ram.py load`). The partition map is the shared 3.80.0 map in `tools/hxf_ram.py`; payload capacity excludes the 512-byte entry sub-header sector.
+Payload sizes are read from each stock `.hxf`'s L6IA entries (`tools/hxf_ram.py load`) [verified offline]. The sector starts and capacities are the existing HX Stomp map used by `tools/hxf_ram.py`; whether the XL uses the same map remains unverified. Payload capacity excludes the 512-byte entry sub-header sector.
 
 | Entry | XL payload bytes | Stomp payload bytes | Partition start (sector) | Partition sectors |      Payload capacity (bytes) |
 | ----: | ---------------: | ------------------: | -----------------------: | ----------------: | ----------------------------: |
@@ -24,14 +24,10 @@ Payload sizes are read from each stock `.hxf`'s L6IA entries (`tools/hxf_ram.py 
 |    13 |        1,046,388 |             952,612 |               `0x1a14da` |           529,276 |                   270,988,800 |
 |    14 |       54,264,320 |          54,264,320 |               `0x222856` |         remainder | not bounded by the static map |
 
-Entries 1–10 except Entry 0, and Entry 14, have equal Stomp and XL payload sizes. Entries 0, 11, 12 and 13 differ. The Stomp and XL fixed partition starts and sizes are identical in the stock 3.80.0 layout. Entry 14 is the final partition; its end depends on the physical eMMC size.
+Entries 1–10 and 14 have equal HX Stomp and HX Stomp XL payload sizes. Entries 0, 11, 12 and 13 differ. Entry 14 is the final partition in the loader's map; its end depends on the physical eMMC size.
 
-The physical XL eMMC sector count was not queried: the XL was in normal application mode, not the RAM loader's info mode. These numbers describe the stock firmware's partition map, not a live capacity read from the unit.
+The physical XL eMMC sector count was not queried: the XL was in normal application mode, not the RAM loader's info mode. The listed partition values are not a live capacity or partition-table read from the XL.
 
 ## Preset DSP limit
 
-The Stomp stock app's limit function at `0x28e01e88` and the XL stock app's corresponding function at `0x28e07fa8` contain the same 16 bytes:
-
-`42f2283081428cbf00200120704700bf`
-
-Unicorn calls against both stock code images return `[1, 1, 0]` for preset totals `[8999, 9000, 9001]`. Thus the preset total limit is 9,000 cost units (90%); the fixed 1,500-unit overhead leaves 7,500 units (75%) for blocks, matching the Stomp limit.
+The HX Stomp stock app's limit function at `0x28e01e88` and an identical XL function at `0x28e07fa8` were located by instruction signature [verified offline]. Unicorn calls return `[1, 1, 0]` for totals `[8999, 9000, 9001]` on both functions. The XL function's connection to preset admission and the XL's fixed overhead have not yet been verified; the shared 9,000-unit (90%) preset limit remains a hypothesis.
