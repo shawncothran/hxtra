@@ -1,14 +1,17 @@
 """tools/features/label_color.py and src/m4/label_color.s: the Global Settings, Edit view and tuner page label calls in unicorn, the
 HXtra parameter table and the hooks a build makes."""
+import os
 import struct
 
 import pytest
 
 import features
 import patch_menu as pm
+import patch_amp as pa
 import setting_ids
 from features import label_color as lc
 from features import tuner
+from features import splash
 from firmware import branch_target, built, reader, stock_e0, stock_entry
 
 MODS = features.load()
@@ -25,21 +28,23 @@ _code = {}
 class Label:
     """label_color.s in tests/m4emu.py's M4, with the stock label colour and label text stubbed and logged."""
 
-    def __init__(self, m4emu):
-        if 'test' not in _code:
-            _code['test'] = m4emu.assemble(lc.MODULE, MODS, IDS, inc={'label.inc': lc.label_inc(PARAMS)})
-        code, self.sym = _code['test']
+    def __init__(self, m4emu, label_colour=lc.LABEL_COLOUR, param_label=lc.PARAM_LABEL):
+        self.label_colour, self.param_label = label_colour, param_label
+        key = (label_colour, param_label)
+        if key not in _code:
+            _code[key] = m4emu.assemble(lc.MODULE, MODS, IDS, inc={'label.inc': lc.label_inc(PARAMS, *key)})
+        code, self.sym = _code[key]
         self.m = m4emu.M4(code, MOD)
         # push {r5, lr}; mov r5, r2; blx r3; pop {r5, pc}: the callers' r5 holds the setting ID or the block info
         self.m.load(TRAMPOLINE, bytes.fromhex('20b5 1546 9847 20bd'))
-        for fn in (lc.LABEL_COLOUR, lc.PARAM_LABEL):
+        for fn in key:
             self.m.stub(fn)
 
     def colour(self, slot, pid):
         """The section paint's colour call for slot showing setting pid -> the colour passed on to the stock call."""
         self.m.log.clear()
         self.m.call(TRAMPOLINE, slot, WHITE, pid, MOD + self.sym['label_colour'] | 1)
-        (got,) = self.m.calls(lc.LABEL_COLOUR)
+        (got,) = self.m.calls(self.label_colour)
         assert got[0] == slot
         return got[1]
 
@@ -52,8 +57,8 @@ class Label:
         self.m.u8(FRAME + 0x70, int(second is not None))
         self.m.log.clear()
         self.m.call(TRAMPOLINE, knob, NAME, INFO, MOD + self.sym['label_param'] | 1)
-        assert [c[:2] for c in self.m.calls(lc.PARAM_LABEL)] == [(knob, NAME)], 'then the label'
-        colours = self.m.calls(lc.LABEL_COLOUR)
+        assert [c[:2] for c in self.m.calls(self.param_label)] == [(knob, NAME)], 'then the label'
+        colours = self.m.calls(self.label_colour)
         assert len(colours) <= 1 and all(c[0] == knob for c in colours)
         return colours[0][1] if colours else None
 
@@ -109,6 +114,15 @@ def test_label_any_gives_the_tuner_page_teal(label):
     assert [c[:2] for c in label.m.calls(lc.LABEL_COLOUR)] == [(1, TEAL)]
 
 
+def test_xl_label_handlers_share_the_same_behavior(m4emu):
+    label = Label(m4emu, 0x28dc9594, 0x28dc9510)
+    assert label.colour(1, HXTRA_ID) == TEAL
+    assert label.colour(1, STOCK_ID) == WHITE
+    assert label.param(1, DELUXE, 7) == TEAL
+    assert label.param(1, DELUXE, 6) is None
+    assert label.param(2, NAM_ID, 1, second=DELUXE) == TEAL
+
+
 def test_label_color_is_built_before_tuner():
     assert lc.ORDER < getattr(tuner, 'ORDER', 100) and tuner.LABEL_COLOR == lc.MODULE
 
@@ -142,6 +156,30 @@ def test_build_sends_the_label_calls_to_the_module(m4emu):
     module = branch_target(lc.LABEL_CALL, read(lc.LABEL_CALL, 4)) - sym['label_colour']
     assert read(module, len(code)) == code
     assert branch_target(lc.PARAM_CALL, read(lc.PARAM_CALL, 4)) == module + sym['label_param']
+
+
+@pytest.mark.firmware
+def test_xl_build_sends_the_label_calls_to_the_module(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    stock_read = reader(load(0))
+    assert stock_read(0x28dc26b4, 6) == bytes.fromhex('2de9f04fa7b0')
+    assert stock_read(0x28dc2716, 4) == bytes.fromhex('9df86c20')
+    assert stock_read(0x28dc2744, 4) == bytes.fromhex('9df87030')
+    assert branch_target(0x28dd4412, stock_read(0x28dd4412, 4)) == 0x28dc9594
+    assert branch_target(0x28dc28f0, stock_read(0x28dc28f0, 4)) == 0x28dc9510
+    entries, on = pm.menu_entries(load, [lc, splash], {'HX_LABEL_COLOR': '1'}, IDS, layout=pm.XL_MENU)
+    assert lc in on
+    read = reader(entries[0])
+    params = lc.hxtra_params(stock_read, lambda address: struct.unpack('<I', stock_read(address, 4))[0],
+                             pa._parse_e0_segments(load(0)), load(3))
+    code, symbols = m4emu.assemble(lc.MODULE, MODS, IDS, inc={'label.inc': lc.label_inc(params, 0x28dc9594, 0x28dc9510)})
+    module = branch_target(0x28dd4412, read(0x28dd4412, 4)) - symbols['label_colour']
+    assert read(module, len(code)) == code
+    assert branch_target(0x28dc28f0, read(0x28dc28f0, 4)) == module + symbols['label_param']
 
 
 @pytest.mark.firmware

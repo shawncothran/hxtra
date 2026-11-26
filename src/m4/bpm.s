@@ -7,9 +7,8 @@
 .thumb
 .include "hxtra.inc"
 .include "tap.inc"                  @ TAP_NOW: Tap LED Color's shown colour, or 0 in a build without it
-.equ BPM_DOTS, 18                   @ rectangles: 9 a dot
+.include "bpm.inc"
 .equ BPM_DOT_TOP, 237               @ the dots' top (y counts up from the bottom)
-.equ FS_FUNCTIONS, 0x28128a74       @ each footswitch's function, two bytes apart: 1 is TAP
 .equ BPM_TEMPO, 9                   @ Color Tempo: the TAP footswitch's colour
 .equ SHOW_MS, 1000                  @ after the first Home paint; the breathing line starts a second later, as both at once glitch at boot
 
@@ -25,25 +24,37 @@ bpm_repaint:                        @ a repaint, once the Home view has painted 
     cbz r0, bpm_unpainted
     ldrb r0, [r1, #7]
     cbz r0, bpm_unpainted
-    movs r0, #0
+    movs r0, #BPM_REDRAW_FIRST
     movs r1, #1
-    ldr r3, =0x28db8509             @ the redraw request the layout code ends with: (0, 1)
+    ldr r3, =BPM_REDRAW             @ the redraw request the layout code ends with: (0, 1)
     bx r3
 bpm_unpainted:
     bx lr
 
 bpm_ledsend:                        @ the LED send's first two instructions, moved here after noting each footswitch ring lit or not
     push {lr}
+.if BPM_XL
+    cmp r0, #BPM_RING_ID
+    bne bpm_sent
+.else
     cmp r0, #2
     bhi bpm_sent
+.endif
     lsls r2, r1, #8                 @ the colour is the low three bytes, black for off
     it ne
     movne r2, #1
     adr.w r3, bpm_rings
+.if BPM_XL
+    strb r2, [r3, #BPM_RING_SLOT]
+    ldr r3, =BPM_FS_FUNCTIONS
+    ldrb r2, [r3]
+    cbz r2, bpm_sent
+.else
     strb r2, [r3, r0]
     cbz r2, bpm_sent
-    ldr r3, =FS_FUNCTIONS
+    ldr r3, =BPM_FS_FUNCTIONS
     ldrb.w r2, [r3, r0, lsl #1]
+.endif
     cmp r2, #1
     bne bpm_sent
     adr.w r3, bpm_data
@@ -52,8 +63,8 @@ bpm_ledsend:                        @ the LED send's first two instructions, mov
     it eq
     moveq r1, #0                    @ Tap Tempo LED is off: the ring stays dark, though the stock blinks it for the dot
 bpm_sent:
-    ldr r3, =0x281c90a4
-    ldr r12, =0x28d98f79            @ the send after them; it sets r2 before it reads it
+    ldr r3, =BPM_LED_SEND_VALUE
+    ldr r12, =BPM_LED_SEND_REST    @ the send after them; it sets r2 before it reads it
     bx r12
 
 bpm_tick:                           @ after the LED task's 1 ms sleep: the dot lit as the TAP footswitch's ring is
@@ -77,7 +88,14 @@ bpm_tick:                           @ after the LED task's 1 ms sleep: the dot l
     it eq
     bleq bpm_repaint                @ every 20 ms from SHOW_MS to 1.5 s: the boot leaves black bars over the text [verified on unit]
 bpm_booted:
-    ldr r1, =FS_FUNCTIONS
+.if BPM_XL
+    ldr r1, =BPM_FS_FUNCTIONS
+    ldrb r0, [r1]
+    movs r2, #BPM_RING_SLOT
+    cmp r0, #1
+    beq bpm_tapring
+.else
+    ldr r1, =BPM_FS_FUNCTIONS
     movs r2, #0
 bpm_findtap:
     ldrb.w r0, [r1, r2, lsl #1]
@@ -86,9 +104,10 @@ bpm_findtap:
     adds r2, #1
     cmp r2, #3
     bne bpm_findtap
+.endif
     ldr r0, [r4, #16]               @ no TAP footswitch (Preset, Snapshot modes): the stock beat stops, so the dot keeps it itself
     cbz r0, bpm_ticked
-    ldr r3, =0x28da6459             @ the µs clock the stock beat runs on
+    ldr r3, =BPM_CLOCK              @ the µs clock the stock beat runs on
     blx r3
     ldr r2, [r4, #16]
     ldr r1, [r4, #12]
@@ -115,7 +134,7 @@ bpm_tapring:
     ldrb r1, [r4, #4]
     cmp r0, r1
     beq bpm_ticked
-    ldr r1, =0x281cd074             @ the stock beat's last turn (µs): the dot carries on from it once no footswitch is TAP
+    ldr r1, =BPM_LAST_TURN          @ the stock beat's last turn (µs): the dot carries on from it once no footswitch is TAP
     ldr r1, [r1]
     str r1, [r4, #12]
 bpm_turn:
@@ -134,6 +153,26 @@ bpm_tapled:                         @ after GET_VALUE(26, out) where the stock d
     str r0, [r1, #4]
     bx lr
 
+.if BPM_XL
+.thumb_func
+bpm_tapled_xl:                      @ the XL option reads: remember its bool, then keep the stock ring path enabled
+    push {r4-r6, lr}
+    mov r4, r1
+    ldr r3, =BPM_GET
+    blx r3
+    mov r5, r0
+    cmp r0, #0
+    blt bpm_tapled_xl_done
+    ldrb r3, [r4]
+    cmp r3, #1
+    bne bpm_tapled_xl_done
+    mov r1, r4
+    bl bpm_tapled
+bpm_tapled_xl_done:
+    mov r0, r5
+    pop {r4-r6, pc}
+.endif
+
 bpm_tap:                            @ before the tap tempo core: the dot lit red at once
     adr.w r0, bpm_data
     movs r1, #1
@@ -146,29 +185,29 @@ bpm_construct:                      @ after the Home view's constructor: the wid
     adr.w r4, bpm_widget
     mov r0, r4
     adr.w r1, bpm_node
-    ldr r3, =0x28e249d1             @ init(widget, node)
+    ldr r3, =BPM_TEXT_INIT          @ init(widget, node)
     blx r3
     mov r0, r4
     movs r1, #2
     movs r2, #238                   @ y counts up from the bottom
-    ldr r3, =0x28e24a69             @ setPos
+    ldr r3, =BPM_TEXT_POS           @ setPos
     blx r3
     mov r0, r4
     movs r1, #6                     @ 3 * row + column: row 2 puts y at the top, column 0 x at the left
-    ldr r3, =0x28e24ac9             @ setAnchor
+    ldr r3, =BPM_TEXT_ANCHOR        @ setAnchor
     blx r3
     mov r0, r4
     movs r1, #2
-    ldr r3, =0x28e249e9             @ setFont
+    ldr r3, =BPM_TEXT_FONT          @ setFont
     blx r3
     mov r0, r4
     adr.w r1, bpm_text
     movs r2, #16
-    ldr r3, =0x28e24bc1             @ setText
+    ldr r3, =BPM_TEXT_SET            @ setText
     blx r3
     mov r0, r4
     movs r1, #0
-    ldr r3, =0x28e24bc9             @ setVisible
+    ldr r3, =BPM_TEXT_VISIBLE       @ setVisible
     blx r3
     adr.w r4, bpm_dot
     adr.w r5, bpm_dotnodes
@@ -176,15 +215,15 @@ bpm_construct:                      @ after the Home view's constructor: the wid
 bpm_dotmake:
     mov r0, r4
     mov r1, r5
-    ldr r3, =0x28e24989             @ init(widget, node)
+    ldr r3, =BPM_DOT_INIT           @ init(widget, node)
     blx r3
     mov r0, r4
     movs r1, #6                     @ placed by the top left corner, as the text
-    ldr r3, =0x28e24a19
+    ldr r3, =BPM_DOT_ANCHOR
     blx r3
     mov r0, r4
     movs r1, #0
-    ldr r3, =0x28e24b01             @ setVisible
+    ldr r3, =BPM_DOT_VISIBLE        @ setVisible
     blx r3
     adds r4, #0x1c
     adds r5, #0x28
@@ -236,21 +275,21 @@ bpm_before:                         @ before the Home paint (framebuffer, Home v
     cbz r5, bpm_textshow            @ Font Size Off: still formatted, for the period the dot's beat runs on
     mov r0, r7
     mov r1, r5
-    ldr r3, =0x28e249e9             @ setFont
+    ldr r3, =BPM_TEXT_FONT          @ setFont
     blx r3
     mov r0, r7
     mov r1, r6
-    ldr r3, =0x28e24a29             @ setColor
+    ldr r3, =BPM_TEXT_COLOR         @ setColor
     blx r3
     mov r0, r7
     adr.w r1, bpm_text
     movs r2, #16
-    ldr r3, =0x28e24bc1             @ setText
+    ldr r3, =BPM_TEXT_SET            @ setText
     blx r3
     movs r1, #1                     @ showing marks it dirty every paint, so it is redrawn whatever else repainted the Home view
 bpm_textshow:
     mov r0, r7
-    ldr r3, =0x28e24bc9             @ setVisible
+    ldr r3, =BPM_TEXT_VISIBLE       @ setVisible
     blx r3
     adr.w r1, bpm_data
     ldrb r0, [r1, #5]
@@ -271,16 +310,16 @@ bpm_dotplace:                       @ placed before sized: a first erase then co
     ldrb r1, [r5, #0]
     ldrb r2, [r5, #1]
     rsb.w r2, r2, #BPM_DOT_TOP
-    ldr r3, =0x28e24af1             @ setPos
+    ldr r3, =BPM_DOT_POS            @ setPos
     blx r3
     mov r0, r7
     ldrb r1, [r5, #2]
     ldrb r2, [r5, #3]
-    ldr r3, =0x28e24b29             @ setSize
+    ldr r3, =BPM_DOT_SIZE           @ setSize
     blx r3
     mov r0, r7
     mov r1, r6
-    ldr r3, =0x28e24b99             @ setColor
+    ldr r3, =BPM_DOT_COLOR          @ setColor
     blx r3
     movs r1, #1                     @ dirty every paint, as the text
     b bpm_dotshow
@@ -288,7 +327,7 @@ bpm_dothide:
     movs r1, #0
 bpm_dotshow:
     mov r0, r7
-    ldr r3, =0x28e24b01             @ setVisible
+    ldr r3, =BPM_DOT_VISIBLE        @ setVisible
     blx r3
     adds r5, #6
     adds r7, #0x1c
@@ -296,20 +335,20 @@ bpm_dotshow:
     cmp r7, r0
     bne bpm_dotplace
     mov r0, r8
-    ldr r3, =0x28e24c91             @ erase(context, context, widget) of a text widget
+    ldr r3, =BPM_TEXT_ERASE         @ erase(context, context, widget) of a text widget
     bl bpm_each
     mov r0, r8
-    ldr r3, =0x28e24b41             @ and of a rectangle
+    ldr r3, =BPM_DOT_ERASE          @ and of a rectangle
     bl bpm_doteach
     pop {r3-r9, pc}
 
 bpm_after:                          @ after the Home paint (framebuffer): the draw pass
     push {r4, lr}
     mov r4, r0
-    ldr r3, =0x28e24c31             @ draw(context, context, widget) of a text widget
+    ldr r3, =BPM_TEXT_DRAW          @ draw(context, context, widget) of a text widget
     bl bpm_each
     mov r0, r4
-    ldr r3, =0x28e24b59             @ and of a rectangle
+    ldr r3, =BPM_DOT_DRAW           @ and of a rectangle
     bl bpm_doteach
     pop {r4, pc}
 
@@ -327,7 +366,7 @@ bpm_foreach:                        @ r0 the context, r1 the first widget, r2 co
     uxth r6, r2
     lsrs r7, r2, #16
     mov r8, r3
-    ldr r3, =0x28e24971             @ the widget lock, as the stock paint takes it
+    ldr r3, =BPM_WIDGET_LOCK        @ the widget lock, as the stock paint takes it
     blx r3
 bpm_next:
     mov r0, r4
@@ -337,7 +376,7 @@ bpm_next:
     add r5, r7
     subs r6, #1
     bne bpm_next
-    ldr r3, =0x28e24ae9
+    ldr r3, =BPM_WIDGET_UNLOCK
     blx r3
     pop {r4-r8, pc}
 
@@ -345,7 +384,7 @@ bpm_get:                            @ r0 a stock setting ID -> r0 its value as s
     push {r4, lr}
     sub sp, #8
     mov r1, sp
-    ldr r3, =0x28e1f845             @ GET_VALUE(id, out): the value at out + 4
+    ldr r3, =BPM_GET                @ GET_VALUE(id, out): the value at out + 4
     blx r3
     cmp r0, #0
     ldr r0, [sp, #4]
@@ -355,7 +394,11 @@ bpm_get:                            @ r0 a stock setting ID -> r0 its value as s
     pop {r4, pc}
 
 bpm_format:                         @ r0 a font -> bpm_text holds the tempo, or -- if there is none
+.if BPM_XL
+    push {r4-r8, lr}
+.else
     push {r4-r7, lr}
+.endif
     mov r7, r0
     movs r0, #14                    @ Tempo Select: Global BPM when Global, else Preset BPM, as the stock code picks
     bl bpm_get
@@ -413,17 +456,23 @@ bpm_ones:
     cbz r7, bpm_end                 @ 21 Bold and 35 Bold have digits only
     cmp r7, #4
     beq bpm_end
-    ldr r3, =0x28d9685d             @ the flag the tempo screen shows Extrnl for, and taps are ignored by
+.if BPM_EXTERNAL
+    ldr r3, =BPM_EXTERNAL           @ the flag the tempo screen shows Extrnl for, and taps are ignored by
     blx r3
     cbz r0, bpm_end
     movs r0, #' '
     strb r0, [r4], #1
     movs r0, #'X'
     strb r0, [r4], #1
+.endif
 bpm_end:
     movs r0, #0
     strb r0, [r4]
+.if BPM_XL
+    pop {r4-r8, pc}
+.else
     pop {r4-r7, pc}
+.endif
 bpm_none:                           @ the digit-only fonts have no dash: nothing
     cmp r7, #0
     beq bpm_end
@@ -433,6 +482,135 @@ bpm_none:                           @ the digit-only fonts have no dash: nothing
     strb r0, [r4], #1
     strb r0, [r4], #1
     b bpm_end
+
+.if BPM_XL
+.thumb_func
+bpm_xl_transition_lock:
+    push {r4, lr}
+    ldr r0, =BPM_VIEW_MUTEX
+    ldr r3, =BPM_MUTEX_LOCK
+    blx r3
+    ldr r3, =BPM_WIDGET_LOCK
+    blx r3
+    pop {r4, pc}
+
+.thumb_func
+bpm_xl_transition_sync:
+    push {r4, lr}
+    ldr r3, =BPM_VIEW_SYNC
+    blx r3
+    ldr r0, =BPM_VIEW_MUTEX
+    ldr r3, =BPM_MUTEX_UNLOCK
+    blx r3
+    pop {r4, pc}
+
+.thumb_func
+bpm_before_xl:                      @ the XL Home callback: create once, then update the text before its widget erase pass
+    push {r4-r8, lr}
+    mov r6, r0
+    mov r7, r1
+    adr.w r4, bpm_data
+    movs r0, #1
+    str r0, [r4]
+    movs r0, #0
+    str r0, [r4, #24]
+    ldr r0, [r4, #20]
+    cbnz r0, bpm_xl_made
+    movs r0, #1
+    str r0, [r4, #20]
+    bl bpm_construct_xl
+bpm_xl_made:
+    mov r0, r6
+    mov r1, r7
+    bl bpm_before
+    pop {r4-r8, pc}
+
+.thumb_func
+bpm_after_xl:                       @ the XL Home callback's widget draw pass
+    b bpm_after
+
+.thumb_func
+bpm_construct_xl:                   @ lazily initialize the text and dot widgets when the XL Home callback first runs
+    push {r4-r6, lr}
+    adr.w r4, bpm_widget
+    adr.w r5, bpm_node
+    mov r0, r4
+    mov r1, r5
+    ldr r12, =BPM_TEXT_INIT
+    blx r12
+    mov r0, r4
+    movs r1, #2
+    movs r2, #238
+    ldr r3, =BPM_TEXT_POS
+    blx r3
+    mov r0, r4
+    movs r1, #6
+    ldr r3, =BPM_TEXT_ANCHOR
+    blx r3
+    mov r0, r4
+    movs r1, #2
+    ldr r3, =BPM_TEXT_FONT
+    blx r3
+    mov r0, r4
+    mvn r1, #0xff000000
+    ldr r3, =BPM_TEXT_COLOR
+    blx r3
+    mov r0, r4
+    adr.w r1, bpm_text
+    movs r2, #16
+    ldr r3, =BPM_TEXT_SET
+    blx r3
+    mov r0, r4
+    movs r1, #0
+    ldr r3, =BPM_TEXT_VISIBLE
+    blx r3
+    adr.w r4, bpm_dot
+    adr.w r5, bpm_dotnodes
+    movs r6, #BPM_DOTS
+bpm_xl_dotmake:
+    mov r0, r4
+    mov r1, r5
+    ldr r12, =BPM_DOT_INIT
+    blx r12
+    mov r0, r4
+    movs r1, #6
+    ldr r3, =BPM_DOT_ANCHOR
+    blx r3
+    adds r4, #0x1c
+    adds r5, #0x28
+    subs r6, #1
+    bne bpm_xl_dotmake
+    pop {r4-r6, pc}
+
+.thumb_func
+bpm_tick_xl:                        @ track the beat and refresh the BPM while Home is active
+    push {r4, lr}
+    adr.w r4, bpm_data
+    ldr r0, [r4]
+    cbz r0, bpm_tick_xl_out
+    bl bpm_tick
+    ldr r0, [r4, #8]
+    movw r1, #SHOW_MS
+    cmp r0, r1
+    blo bpm_tick_xl_out
+    ldr r0, [r4, #24]
+    cmp r0, #1000
+    bhs bpm_tick_xl_out
+    adds r0, #1
+    str r0, [r4, #24]
+    ldr r0, [r4, #28]
+    adds r0, #1
+    cmp r0, #20
+    blo bpm_tick_xl_count
+    movs r0, #0
+    str r0, [r4, #28]
+    bl bpm_repaint
+    b bpm_tick_xl_out
+bpm_tick_xl_count:
+    str r0, [r4, #28]
+bpm_tick_xl_out:
+    pop {r4, pc}
+.endif
 
 HXTRA_SETTING_GET
 .ltorg
@@ -464,6 +642,9 @@ bpm_dotshape:                       @ x, y below the dots' top, w, h, Dot Positi
 .balign 4
 bpm_data:                           @ 0 painted, 4 dot lit, 5 tapped red, 6 Tap Tempo LED on, 7 shown, 8 ms since first paint, 12 last turn (µs), 16 period (ms)
     .word 0, 0x01010000, 0, 0, 0
+.if BPM_XL
+    .word 0, 0, 0                  @ XL: text widget made, Home idle time, repaint tick
+.endif
 bpm_rings:                          @ each footswitch ring lit, as last sent
     .space 4
 bpm_text:

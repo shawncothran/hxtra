@@ -17,7 +17,7 @@ MODS = features.load()
 IDS = setting_ids.by_name()
 
 # The fakes, at the addresses the module reads
-DSP_PTR, SLOT_MODEL = 0x28449e78, 0x2812c590
+DSP_PTR, SLOT_MODEL = dsp_meter.STOMP.dsp_ptr, dsp_meter.STOMP.slot_model
 DSP, NODES, BLOCKS, VIEW, CODE = 0x28500000, 0x28600000, 0x28700000, 0x28800000, 0x28e60000
 FB = 0x28d1ce98
 FILL, WIDGET_LOCK, WIDGET_UNLOCK = 0x100017e8, 0x28e24970, 0x28e24ae8
@@ -55,20 +55,26 @@ def test_settings():
 class Meter:
     """The module in unicorn: blocks in slots, and what paint draws."""
 
-    def __init__(self, m4emu):
-        code, self.sym = m4emu.assemble('src/m4/dsp_meter.s', MODS, IDS)
+    def __init__(self, m4emu, profile=dsp_meter.STOMP):
+        self.profile = profile
+        layout = pm.XL_MENU if profile is dsp_meter.XL else pm.STOMP_MENU
+        code, self.sym = m4emu.assemble('src/m4/dsp_meter.s', MODS, IDS,
+                                        inc={'dsp_meter.inc': dsp_meter.dsp_meter_inc(profile)}, layout=layout)
         self.m = m4emu.M4(code, CODE)
         self.fills, self.events = [], []
         self.widget, self.drawn = {}, []
         self.m.stub(FILL, self._fill)
-        for fn, name in TEXT.items():
+        text = {profile.text_init: 'init', profile.text_pos: 'pos', profile.text_font: 'font',
+            profile.text_color: 'colour', profile.text_anchor: 'anchor', profile.text_set: 'text',
+            profile.text_visible: 'visible', profile.text_erase: 'erase', profile.text_draw: 'draw'}
+        for fn, name in text.items():
             self.m.stub(fn, lambda m, name=name: self._text(m, name))
-        for fn, name in ((WIDGET_LOCK, 'widget lock'), (WIDGET_UNLOCK, 'widget unlock'), (DSP_LOCK, 'dsp lock'),
-                         (DSP_UNLOCK, 'dsp unlock')):
+        for fn, name in ((profile.widget_lock & ~1, 'widget lock'), (profile.widget_unlock & ~1, 'widget unlock'),
+                 (profile.dsp_lock & ~1, 'dsp lock'), (profile.dsp_unlock & ~1, 'dsp unlock')):
             self.m.stub(fn, lambda m, name=name: self.events.append(name))
         self.settings = {TOTAL: T_LARGE}    # the tests before these settings drew the total as Large does
-        self.m.stub(pm.GET_VALUE, self._get_value)
-        self.m.u32(DSP_PTR, DSP)
+        self.m.stub(layout.get, self._get_value)
+        self.m.u32(profile.dsp_ptr, DSP)
         self.m.u32(DSP + 0x4400, NODES)
         self.m.u32(DSP + 0x43fc, 0)
         for idx in range(16):
@@ -128,13 +134,14 @@ class Meter:
         self.m.u32(wd + 0x18, h)
         self.m.u8(wd + 0x1c, 4)
         self.m.u8(wd + 0x1d, image is not None)
-        self.m.u8(SLOT_MODEL + 0x3f + k, 1 if second_row else 0)
+        self.m.u8(self.profile.slot_model + 0x3f + k, 1 if second_row else 0)
 
     def paint(self):
         self.fills.clear()
         self.events.clear()
         self.drawn.clear()
-        self.m.call(CODE + self.sym['dsp_paint'], FB, VIEW, 0, 0)
+        paint = 'dsp_paint_xl' if self.profile is dsp_meter.XL else 'dsp_paint'
+        self.m.call(CODE + self.sym[paint], FB, VIEW, 0, 0)
         return self
 
     def texts(self, colour, rows=None):
@@ -182,6 +189,85 @@ def one_block(meter, cost):
     meter.block(0, cost)
     meter.slot(0, 0x113)
     return meter.paint()
+
+
+@pytest.mark.parametrize('record, second_row', [(2, False), (10, True)])
+def test_xl_edit_numbers_follow_the_visible_block_row(m4emu, record, second_row):
+    meter = Meter(m4emu, dsp_meter.XL)
+    meter.block(record, 2345)
+    meter.slot(2, 0x113, second_row=second_row)
+    assert meter.paint().numbers() == ['23']
+    assert meter.events[:4] == ['dsp lock', 'dsp unlock', 'widget lock', 'fill']
+    assert meter.events[-1] == 'widget unlock'
+
+
+def test_xl_edit_numbers_can_be_disabled(m4emu):
+    meter = Meter(m4emu, dsp_meter.XL)
+    meter.settings[EDIT_BLOCKS] = OFF
+    meter.block(2, 2345)
+    meter.slot(2, 0x113)
+    assert meter.paint().numbers() == [] and meter.total() == '23/75'
+    assert 'dsp lock' in meter.events, 'Total still needs the block-cost scan'
+
+
+@pytest.mark.parametrize('total', [T_SMALL, T_LARGE, T_OFF])
+def test_xl_edit_total_modes(m4emu, total):
+    meter = Meter(m4emu, dsp_meter.XL)
+    meter.settings[TOTAL] = total
+    blocks(meter, 2345)
+    result = meter.paint()
+    assert result.numbers() == ['23']
+    if total == T_SMALL:
+        assert small(result) == [('23/75', 316 - (5 * 8 - 2), 316, 232)]
+    elif total == T_LARGE:
+        assert result.total() == '23/75'
+    else:
+        assert small(result) == [] and result.drawn == []
+
+
+def test_xl_edit_hides_total_without_a_dsp_model(m4emu):
+    meter = Meter(m4emu, dsp_meter.XL)
+    blocks(meter, 2345)
+    meter.m.u32(dsp_meter.XL.dsp_ptr, 0)
+    result = meter.paint()
+    assert result.numbers() == [] and result.total() is None
+
+
+def test_xl_browser_shows_each_models_cost_and_the_total(m4emu):
+    browser = Browser(m4emu, dsp_meter.XL)
+    browser.lists[(2, 0)] = [509, 520, 2345, 49, 9950]
+    blocks(browser, 2345, 1000)
+    result = browser.paint()
+    assert result.numbers() == ['5', '5', '23', '0', '100']
+    assert result.total() == '33/75'
+
+
+def test_xl_browser_setting_hides_row_costs_but_not_total(m4emu):
+    browser = Browser(m4emu, dsp_meter.XL)
+    browser.lists[(2, 0)] = [2345] * 5
+    blocks(browser, 2345)
+    browser.settings[MODEL_BROWSER] = OFF
+    result = browser.paint()
+    assert result.numbers() == [] and result.total() == '23/75'
+
+
+@pytest.mark.firmware
+def test_xl_builds_edit_blocks_and_total_and_hooks_its_painter():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    entries, on = pm.menu_entries(load, MODS, {'HX_DSP_METER': '1', 'HX_REAL_NAMES': '1'}, IDS, layout=pm.XL_MENU)
+    assert dsp_meter in on and 'real_names' in [features.name(feature) for feature in on]
+    assert [setting.key for setting in pm.feature_settings(dsp_meter, pm.XL_MENU)] == ['browser', 'blocks', 'total']
+    stock, patched = reader(load(0)), reader(entries[0])
+    assert patched(dsp_meter.XL_EDIT_PAINT_LIT, 4) != stock(dsp_meter.XL_EDIT_PAINT_LIT, 4)
+    assert patched(dsp_meter.XL.browser_paint_lit, 4) != stock(dsp_meter.XL.browser_paint_lit, 4)
+    assert patched(dsp_meter.XL.names_x, 2) == dsp_meter.XL.names_x_labelled
+    assert b'DSP Usage Display' in entries[0]
+    assert b'Browser\nModel' in entries[0] and b'Total' in entries[0]
+    assert b'Blocks\nEdit' in entries[0]
 
 
 @pytest.mark.parametrize('cost, shown', [(0, '0'), (49, '0'), (50, '1'), (149, '1'), (150, '2'), (2345, '23'), (4000, '40'),
@@ -320,13 +406,13 @@ def wipe(r, w=ICON_W):
 class Browser(Meter):
     """The module's browser handler in unicorn: lists of model costs by (category, subcategory), and the browser showing one."""
 
-    def __init__(self, m4emu):
-        super().__init__(m4emu)
+    def __init__(self, m4emu, profile=dsp_meter.STOMP):
+        super().__init__(m4emu, profile)
         self.lists, self.items, self.bad_items, self.level = {}, {}, set(), 0
-        self.m.stub(LEVEL, self._level)
-        self.m.stub(COUNT, self._count)
-        self.m.stub(ITEM, self._item)
-        self.m.stub(COST, self._cost)
+        self.m.stub(profile.browser_level & ~1, self._level)
+        self.m.stub(profile.browser_count & ~1, self._count)
+        self.m.stub(profile.browser_item & ~1, self._item)
+        self.m.stub(profile.browser_cost & ~1, self._cost)
         self.show(MODELS, cat=2, sub=0)
         for r in range(5):
             self.icon(r, 0x175)

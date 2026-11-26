@@ -10,6 +10,7 @@
 .syntax unified
 .thumb
 .include "hxtra.inc"
+.include "dsp_meter.inc"
 .equ METER_NO_BLOCKS, 1             @ read_settings' r0: Edit Blocks Off
 .equ METER_NO_BROWSER, 2            @ Model Browser Off
 .equ TOTAL_SMALL, 0                 @ DSP > Total
@@ -37,12 +38,12 @@ none:
     adds r6, #1
     cmp r6, #9
     bne none
-    ldr r7, =0x28449e78             @ the DSP model: block records of 0x54 bytes
+    ldr r7, =DSP_PTR                @ the DSP model: block records of 0x54 bytes
     ldr r7, [r7]
     cmp r7, #0
     beq costed
     movs r0, #0
-    ldr r3, =0x28e07845             @ its lock, as the stock block lookup 0x28e0fe94 takes it; never held with the widget lock
+    ldr r3, =DSP_LOCK              @ its lock, as the stock block lookup takes it; never held with the widget lock
     blx r3
     movs r6, #0
 cost:
@@ -61,13 +62,13 @@ first_row:
     bl sum_blocks
     str r0, [sp, #32]
     movs r0, #0
-    ldr r3, =0x28e0785d
+    ldr r3, =DSP_UNLOCK
     blx r3
 costed:
     bl read_settings                @ outside both locks
     str r0, [sp, #36]
     str r1, [sp, #40]
-    ldr r3, =0x28e24971             @ the widget lock
+    ldr r3, =WIDGET_LOCK            @ the widget lock
     blx r3
     ldr r0, [sp, #36]
     tst r0, #METER_NO_BLOCKS
@@ -97,11 +98,93 @@ slots_done:
     ldr r0, [sp, #32]
     ldr r1, [sp, #40]
     bl total
-    ldr r3, =0x28e24ae9
+    ldr r3, =WIDGET_UNLOCK
     blx r3
     movs r0, #0
     add sp, #44
     pop {r4-r7, pc}
+
+.if DSP_XL
+.thumb_func
+dsp_paint_xl:                       @ r0 the framebuffer, r1 the XL Edit view after its stock paint
+    push {r4-r7, lr}
+    sub sp, #48
+    mov r4, r0
+    mov r5, r1
+    bl read_settings
+    str r0, [sp, #36]
+    str r1, [sp, #40]
+    movs r6, #0
+    mvn r0, #0
+xl_clear_costs:
+    str.w r0, [sp, r6, lsl #2]
+    adds r6, #1
+    cmp r6, #8
+    bne xl_clear_costs
+    ldr r7, =DSP_PTR
+    ldr r7, [r7]
+    cbz r7, xl_no_dsp
+    movs r0, #0
+    ldr r3, =DSP_LOCK
+    blx r3
+    movs r6, #0
+xl_cost:
+    ldr r1, =SLOT_MODEL
+    adds r1, r6
+    ldrb r1, [r1, #0x3f]
+    mov r0, r6
+    cbz r1, xl_first_row
+    adds r0, #8
+xl_first_row:
+    bl cost_of
+    str.w r0, [sp, r6, lsl #2]
+    adds r6, #1
+    cmp r6, #8
+    bne xl_cost
+    bl sum_blocks
+    str r0, [sp, #32]
+    movs r0, #0
+    ldr r3, =DSP_UNLOCK
+    blx r3
+    b xl_costed
+xl_no_dsp:
+    mvn r0, #0
+    str r0, [sp, #32]
+xl_costed:
+    movs r0, #0
+    ldr r3, =WIDGET_LOCK
+    blx r3
+    ldr r0, [sp, #36]
+    tst r0, #METER_NO_BLOCKS
+    bne xl_slots_done
+    addw r5, r5, #0x4a4
+    movs r6, #0
+xl_slot:
+    ldrb r0, [r5, #0x1d]
+    cbz r0, xl_next
+    ldr.w r1, [sp, r6, lsl #2]
+    cmp r1, #0
+    blt xl_next
+    adds r1, #50
+    movs r2, #100
+    udiv r1, r1, r2
+    mov r0, r5
+    bl number
+xl_next:
+    adds r5, #0x24
+    adds r6, #1
+    cmp r6, #8
+    bne xl_slot
+xl_slots_done:
+    ldr r0, [sp, #32]
+    ldr r1, [sp, #40]
+    bl total
+    movs r0, #0
+    ldr r3, =WIDGET_UNLOCK
+    blx r3
+    add sp, #48
+    pop {r4-r7, pc}
+.endif
 
 .equ MODELS, 2                      @ the browser's list level that shows models (0x28dc3424 fills it)
 .equ ROWS, 5
@@ -127,7 +210,7 @@ dsp_browser:                        @ r0 the framebuffer, r1 the model browser, 
     tst r0, #METER_NO_BROWSER
     beq models
 not_models:
-    ldr r3, =0x28e24971
+    ldr r3, =WIDGET_LOCK
     blx r3
     adr.w r3, drawn                 @ no widget covers the labels, so leaving the model list must wipe them
     ldr r2, [r3]
@@ -151,16 +234,16 @@ models:
     movs r2, #1
     str r2, [r3]
     mov r0, sp
-    ldr r3, =0x28df0281             @ the level that picks the list, as the stock fill reads it; takes and releases the DSP model lock
+    ldr r3, =BROWSER_LEVEL          @ the level that picks the list, as the stock fill reads it; takes and releases the DSP model lock
     blx r3
     ldrb r0, [sp]
     add r6, r5, r0
     ldrb.w r0, [r6, #0x56e]         @ the category
     ldrb.w r1, [r6, #0x570]         @ the subcategory
-    ldr r3, =0x28e0edcd             @ how many models the list has, negative for none
+    ldr r3, =BROWSER_COUNT          @ how many models the list has, negative for none
     blx r3
     mov r7, r0
-    ldr r3, =0x28e24971
+    ldr r3, =WIDGET_LOCK
     blx r3
     movs r8, #0
 item:
@@ -181,13 +264,13 @@ item:
     ldrb.w r0, [r6, #0x56e]
     ldrb.w r1, [r6, #0x570]
     add r3, sp, #4
-    ldr r12, =0x28e01205            @ the item, a block-load descriptor: kind, model, second model
+    ldr r12, =BROWSER_ITEM          @ the item, a block-load descriptor: kind, model, second model
     blx r12
     cmp r0, #0
     blt next_item
     ldr r0, [sp, #4]
     add r1, sp, #4
-    ldr r3, =0x28e01d51             @ the cost the firmware checks against the preset limit, the second model's included
+    ldr r3, =BROWSER_COST           @ the cost the firmware checks against the preset limit, the second model's included
     blx r3
     cmp r0, #0
     blt next_item
@@ -208,7 +291,7 @@ browser_total:                      @ in the Edit view's corner, which the brows
     ldr r0, [sp, #8]
     ldr r1, [sp, #12]
     bl total
-    ldr r3, =0x28e24ae9
+    ldr r3, =WIDGET_UNLOCK
     blx r3
     movs r0, #0
     add sp, #24
@@ -312,24 +395,24 @@ total:                              @ r0 the blocks' sum in per cent (-1 for non
     strb r1, [r0]
     mov r0, r7
     adr.w r1, total_node
-    ldr r3, =0x28e249d1             @ init(widget, node)
+    ldr r3, =TEXT_INIT              @ init(widget, node)
     blx r3
     mov r0, r7
     movw r1, #TOTAL_RIGHT
     movs r2, #TOTAL_TOP
-    ldr r3, =0x28e24a69             @ setPos: placed before it has text, so its first erase covers nothing
+    ldr r3, =TEXT_POS               @ setPos: placed before it has text, so its first erase covers nothing
     blx r3
     mov r0, r7
     movs r1, #8                     @ 3 * row + column: x at the right, y at the top
-    ldr r3, =0x28e24ac9             @ setAnchor
+    ldr r3, =TEXT_ANCHOR            @ setAnchor
     blx r3
     mov r0, r7
     movs r1, #TOTAL_FONT
-    ldr r3, =0x28e249e9             @ setFont
+    ldr r3, =TEXT_FONT              @ setFont
     blx r3
     mov r0, r7
     mvn r1, #0xff000000
-    ldr r3, =0x28e24a29             @ setColor: white, as the title
+    ldr r3, =TEXT_COLOR             @ setColor: white, as the title
     blx r3
 made:
     adr.w r0, small_drawn           @ Small's digits are framebuffer only: wipe them before they change or go
@@ -361,7 +444,7 @@ large:
     mov r0, r7
     adr.w r1, total_text
     movs r2, #8
-    ldr r3, =0x28e24bc1             @ setText
+    ldr r3, =TEXT_SET               @ setText
     blx r3
     movs r1, #1                     @ showing marks it dirty every paint, so it is redrawn whatever the stock paint drew
 large_show:
@@ -397,17 +480,17 @@ total_out:
 widget_show:                        @ r1 visible, r7 the total's widget, r4 the framebuffer
     push {lr}
     mov r0, r7
-    ldr r3, =0x28e24bc9             @ setVisible
+    ldr r3, =TEXT_VISIBLE           @ setVisible
     blx r3
     mov r0, r4
     mov r1, r4
     mov r2, r7
-    ldr r3, =0x28e24c91             @ erase(fb, fb, widget): black over the last text and the new
+    ldr r3, =TEXT_ERASE             @ erase(fb, fb, widget): black over the last text and the new
     blx r3
     mov r0, r4
     mov r1, r4
     mov r2, r7
-    ldr r3, =0x28e24c31             @ draw(fb, fb, widget)
+    ldr r3, =TEXT_DRAW              @ draw(fb, fb, widget)
     blx r3
     pop {pc}
 
@@ -441,17 +524,17 @@ small_wipe:                         @ r4 the framebuffer: black over the room Sm
 
 blocks_total:                       @ -> r0 the blocks' sum in per cent, or -1 with no DSP model; takes and releases the DSP model lock
     push {r3, r4, r7, lr}
-    ldr r7, =0x28449e78
+    ldr r7, =DSP_PTR
     ldr r7, [r7]
     mvn r4, #0
     cbz r7, blocks_none
     movs r0, #0
-    ldr r3, =0x28e07845
+    ldr r3, =DSP_LOCK
     blx r3
     bl sum_blocks
     mov r4, r0
     movs r0, #0
-    ldr r3, =0x28e0785d
+    ldr r3, =DSP_UNLOCK
     blx r3
 blocks_none:
     mov r0, r4

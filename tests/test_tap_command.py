@@ -2,11 +2,13 @@
 the Command knob's places and turns on an FS slot, which rings blink, the stock beat kept going and its turns, the period from the
 BPM), the stock code and tables they rely on (type 9 is complete and inert on stock, the FS list, the beat's sites), and the firmware
 it builds."""
+import os
 import struct
 
 import pytest
 
 import features
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
 from features import tap_color as tc, tap_command as cmd
@@ -39,27 +41,33 @@ class Tap:
     """tap_command.s in tests/m4emu.py's M4, built with Tap LED Color or without. self.values answers GET_VALUE by ID (missing:
     unset); self.ext is the external clock flag; self.stock what the stock place and turn return. The stubs log their calls."""
 
-    def __init__(self, m4emu, colour=False):
-        if colour not in _code:
-            _code[colour] = m4emu.assemble(cmd.MODULE, MODS, IDS, inc={'tap.inc': tap_inc(colour)})
-        code, self.sym = _code[colour]
+    def __init__(self, m4emu, colour=False, profile=cmd.STOMP):
+        self.profile = profile
+        key = (colour, profile is cmd.XL)
+        if key not in _code:
+            _code[key] = m4emu.assemble(cmd.MODULE, MODS, IDS,
+                                        inc={'tap.inc': tap_inc(colour), 'tap_command.inc': cmd.command_inc(profile)},
+                                        layout=profile.layout)
+        code, self.sym = _code[key]
         self.m = m4emu.M4(code, MOD)
         self.values, self.ext, self.stock = {26: 1, 14: 0, 16: 120.0}, 0, 0
-        for fn in (cmd.FIRE, TAP_CORE, LED_COLOUR, cmd.LED_MODE, TAP_LED, TAP_LED_AGAIN):
+        for fn in (profile.fire, profile.tap_core, profile.led_colour, profile.led_mode, TAP_LED, TAP_LED_AGAIN):
             self.m.stub(fn)
-        self.m.stub(STRCPY, lambda m: m.write(m.reg('r0'), m.read(m.reg('r1'), 16).split(b'\0')[0] + b'\0'))
-        self.nodes = set(range(5))
-        self.m.stub(FS_OBJ, lambda m: m.reg('r0', FS_LISTS))
-        self.m.stub(FS_NODE, lambda m: m.reg('r0', NODES + 0x40 * m.reg('r1') if m.reg('r1') in self.nodes else 0))
-        self.m.write(NODES, bytes(0x40 * 5))
-        for fn in (cmd.CHOICE, cmd.STEP, cmd.NODE_NAME):
+        self.m.stub(profile.strcpy, lambda m: m.write(m.reg('r0'), m.read(m.reg('r1'), 16).split(b'\0')[0] + b'\0'))
+        self.nodes = set(range(profile.footswitches))
+        self.m.stub(profile.fs_object, lambda m: m.reg('r0', FS_LISTS))
+        self.m.stub(profile.fs_node, lambda m: m.reg('r0', NODES + 0x40 * m.reg('r1') if m.reg('r1') in self.nodes else 0))
+        self.m.write(NODES, bytes(0x40 * profile.footswitches))
+        for fn in (profile.choice, profile.step, profile.node_name):
             self.m.stub(fn, lambda m: m.reg('r0', self.stock))
-        self.m.stub(cmd.FS_STATE, lambda m: m.reg('r0', FS_STATE_OBJ))
-        self.m.stub(EXT_CLOCK, lambda m: m.reg('r0', self.ext))
-        self.m.stub(GET_VALUE, self._get)
-        self.m.u32(RED, RED_WORD)
-        self.m.u32(BLUE, BLUE_WORD)
-        self.footswitches((TAP_FN if k == 2 else STOMP for k in range(5)), (0,) * 5)
+        self.m.stub(profile.fs_state, lambda m: m.reg('r0', FS_STATE_OBJ))
+        self.m.stub(profile.external, lambda m: m.reg('r0', self.ext))
+        self.m.stub(profile.get, self._get)
+        self.m.u32(profile.red, RED_WORD)
+        self.m.u32(profile.blue, BLUE_WORD)
+        dedicated = 2 if profile is cmd.STOMP else profile.footswitches - 1
+        self.footswitches((TAP_FN if k == dedicated else STOMP for k in range(profile.footswitches)),
+                          (0,) * profile.footswitches)
 
     def _get(self, m):
         pid, out = m.reg('r0'), m.reg('r1')
@@ -70,9 +78,12 @@ class Tap:
         m.reg('r0', 0)
 
     def footswitches(self, functions, types):
+        functions, types = tuple(functions), tuple(types)
         for k, (f, t) in enumerate(zip(functions, types)):
-            self.m.write(FS_FUNCTIONS + 2 * k, bytes([f, 0]))
-            self.m.u8(CC_TYPES + 6 + k, t)
+            self.m.write(self.profile.function_slots + 2 * k, bytes([f, 0]))
+            self.m.u8(self.profile.cc + 0x74 + 6 + k, t)
+        dedicated_index = 2 if self.profile is cmd.STOMP else self.profile.footswitches - 1
+        self.m.u8(FS_STATE_OBJ + self.profile.dedicated_tap, functions[dedicated_index])
 
     def call(self, sym, *args):
         self.m.log.clear()
@@ -82,7 +93,8 @@ class Tap:
         return [(f, regs) for f, regs in self.m.log if f in fns]
 
     def leds(self):
-        return [(f, regs[:2]) for f, regs in self.m.log if f in (LED_COLOUR, cmd.LED_MODE, TAP_LED, TAP_LED_AGAIN)]
+        return [(f, regs[:2]) for f, regs in self.m.log
+            if f in (self.profile.led_colour, self.profile.led_mode, TAP_LED, TAP_LED_AGAIN)]
 
 
 @pytest.fixture
@@ -95,9 +107,57 @@ def coloured(m4emu):
     return Tap(m4emu, colour=True)
 
 
+@pytest.fixture
+def xl_tap(m4emu):
+    return Tap(m4emu, profile=cmd.XL)
+
+
 def test_feature_has_no_settings_and_runs_after_tap_color():
     assert not hasattr(cmd, 'SETTINGS') and cmd.MENU is False
     assert cmd.ORDER > getattr(tc, 'ORDER', 100)
+
+
+def test_xl_tap_command_hooks_cover_all_assignable_slots(xl_tap):
+    for slot in range(6, 14):
+        xl_tap.m.u8(xl_tap.profile.cc + 0x74 + slot, 9)
+        xl_tap.call('tc_fire', xl_tap.profile.cc, slot, 1, 0)
+        assert xl_tap.calls(xl_tap.profile.tap_core, xl_tap.profile.fire)[-1][0] == xl_tap.profile.tap_core
+
+@pytest.mark.firmware
+def test_xl_build_installs_all_tap_command_hooks_and_tables():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    entries, enabled = pm.menu_entries(load, MODS, {cmd.FLAG: '1', tc.FLAG: '1', 'HX_BPM': '1'}, IDS,
+                                       layout=pm.XL_MENU)
+    assert cmd in enabled and tc in enabled and 'bpm' in {features.name(feature) for feature in enabled}
+    read, stock = reader(entries[0]), reader(load(0))
+    for site, original, _ in cmd.XL.hook_calls:
+        assert read(site, 4) != stock(site, 4), hex(site)
+    assert read(cmd.XL.names + 8 * cmd.TAP, 8) == b'Tap\0\0\0\0\0'
+    assert read(cmd.XL.counts + cmd.TAP, 1) == b'\x01'
+    assert all(read(cmd.XL.choices + 4 * slot, 4) == (cmd.XL.choice_count + 1).to_bytes(4, 'little')
+               for slot in cmd.XL.slots)
+
+
+def test_xl_tap_commands_light_six_rings_but_not_over_dedicated_tap(xl_tap):
+    xl_tap.footswitches((STOMP,) * 7 + (TAP_FN,), (9, 9, 9, 9, 9, 9, 0, 0))
+    assert xl_tap.call('tc_active') == 0b111111
+    xl_tap.call('tc_on')
+    assert xl_tap.leds() == []
+
+    xl_tap.footswitches((STOMP,) * 8, (9, 9, 0, 0, 0, 0, 0, 0))
+    xl_tap.call('tc_on')
+    assert xl_tap.leds() == [(xl_tap.profile.led_colour, (0, RED_WORD)), (xl_tap.profile.led_mode, (0, 1)),
+                             (xl_tap.profile.led_colour, (1, RED_WORD)), (xl_tap.profile.led_mode, (1, 1))]
+
+    xl_tap.m.log.clear()
+    xl_tap.footswitches((STOMP,) * 7 + (TAP_FN,), (9, 9, 0, 0, 0, 0, 0, 0))
+    xl_tap.call('tc_sync_on', xl_tap.profile.dedicated_ring, 1)
+    assert xl_tap.leds()[:2] == [(xl_tap.profile.led_mode, (xl_tap.profile.dedicated_ring, 1)),
+                                  (xl_tap.profile.led_colour, (0, RED_WORD))]
 
 
 @pytest.mark.parametrize('slot', range(6, 11))
@@ -304,7 +364,7 @@ def test_the_refresh_and_a_tempo_change_leave_the_period_alone(tap, case, handle
 
 def test_module_list_is_the_stock_fs_list_with_tap_after_hotkey(tap):
     sym = tap.sym
-    code = _code[False][0]
+    code = _code[(False, False)][0]
     assert tuple(code[sym['tc_list']:sym['tc_list'] + len(FS_LIST)]) == FS_LIST
     assert tuple(t for t in FS_LIST if t != 9) == STOCK_FS_LIST
 
@@ -391,7 +451,8 @@ def test_a_tempo_setting_change_resets_only_a_tap_footswitchs_beat_on_stock():
 @pytest.mark.firmware
 def test_build_sends_every_site_to_the_module(m4emu):
     read, on = built({'HX_CC_TAP': '1'})
-    code, sym = m4emu.assemble(cmd.MODULE, MODS, IDS, inc={'tap.inc': tap_inc(False)})
+    code, sym = m4emu.assemble(cmd.MODULE, MODS, IDS,
+                               inc={'tap.inc': tap_inc(False), 'tap_command.inc': cmd.command_inc(cmd.STOMP)})
     assert 'tap_command' in on and 'tap_color' not in on
     module = branch_target(cmd.FIRE_CALL, read(cmd.FIRE_CALL, 4)) - sym['tc_fire']
     assert read(module, len(code)) == code

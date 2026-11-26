@@ -10,11 +10,13 @@ import pytest
 
 import block3
 import features
+from firmware import reader
 import nam_multi
 import patch_amp as pa
 import patch_click
 import patch_comp as pc
 import patch_menu as pm
+import setting_ids
 import sasm
 import ssim
 
@@ -608,6 +610,21 @@ def test_gr_feature_chains_its_five_hooks():
 
 
 @pytest.mark.firmware
+def test_xl_gr_build_chains_receive_play_and_edit_painters():
+    import features.gr as gr
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    entries, enabled = pm.menu_entries(load, features.load(), {'HX_GR': '1'}, setting_ids.by_name(), layout=pm.XL_MENU)
+    assert 'gr' in [features.name(feature) for feature in enabled]
+    patched, stock = reader(entries[0]), reader(load(0))
+    for site in (gr.XL.rx_cb_lit, gr.XL.play_paint_lit, gr.XL.edit_paint_lit):
+        assert patched(site, 4) != stock(site, 4), hex(site)
+
+
+@pytest.mark.firmware
 def test_comp_names_are_the_models_in_the_model_table():
     """The names the Edit view looks for are the stock Entry 3's, and each is a model the cost table prices by it."""
     import features.gr as gr
@@ -646,7 +663,8 @@ class Meter:
 
     def __init__(self, m4emu):
         import features.gr as gr
-        code, self.sym = m4emu.assemble('src/m4/gr_meter.s', [], {}, inc=gr.inc(COMP_NAMES))
+        code, self.sym = m4emu.assemble('src/m4/gr_meter.s', [], {},
+                        inc={**gr.inc(COMP_NAMES), 'gr_profile.inc': gr.profile_inc(gr.STOMP)})
         m = self.m = m4emu.M4(code, MODULE)
         m.stub(SET_COLOR, lambda m: m.u32(m.reg('r0'), m.reg('r1')))
         m.stub(SET_POS, lambda m: m.write(m.reg('r0') + 4, struct.pack('<2I', m.reg('r1'), m.reg('r2'))))
@@ -711,6 +729,94 @@ def test_m4_grdb_gate_at_minus_72_db(m4emu):
     assert r2 == 0xffffffff
     _, r2 = m.call('grdb', swapped(10 ** (-70 / 20)), swapped(10 ** (-75 / 20)))
     assert r2 == pytest.approx(5 * OCT, abs=0.3 * OCT)
+
+
+def test_xl_gr_frame_uses_xl_window_order_and_redraw_profile(m4emu):
+    import features.gr as gr
+    code, symbols = m4emu.assemble('src/m4/gr_meter.s', [], {},
+                                   inc={**gr.inc(COMP_NAMES), 'gr_profile.inc': gr.profile_inc(gr.XL)},
+                                   layout=pm.XL_MENU)
+    m = m4emu.M4(code, MODULE)
+    m.stub(gr.XL.redraw)
+    words = [0] * 256
+    words[200] = 0xf00d600d
+    words[218] = rot16(0x6b000000 | 20)
+    words[216], words[217], words[250], words[251] = swapped(1.0), swapped(10 ** (-6 / 20)), rot16(1), swapped(0.5)
+    m.write(FRAME_VA, struct.pack('<256I', *words))
+    for _ in range(64):
+        m.call(MODULE + symbols['frame'], 0, FRAME_VA)
+    data = MODULE + symbols['data']
+    assert m.u32(data + 20) == 1
+    assert m.u32(data + 40) & 0x80000000
+    redraws = m.calls(gr.XL.redraw)
+    assert redraws and redraws[0][:2] == (1, 1), 'XL requests both display lists'
+
+
+def test_xl_gr_play_overlay_draws_lights_into_the_framebuffer(m4emu):
+    import features.gr as gr
+    code, symbols = m4emu.assemble('src/m4/gr_meter.s', [], {},
+                                   inc={**gr.inc(COMP_NAMES), 'gr_profile.inc': gr.profile_inc(gr.XL)},
+                                   layout=pm.XL_MENU)
+    m = m4emu.M4(code, MODULE)
+    m.write(FB, bytes(320 * 240 * 2))
+    data = MODULE + symbols['data']
+    layout = 0x80000000 | (1 << 8) | (20 << 24) | 3
+    m.u32(data + 40, layout)
+    m.call(MODULE + symbols['gr_play'], FB, 0)
+    pixel = lambda x, y: struct.unpack('<H', m.read(FB + 2 * (240 * x + y), 2))[0]
+    assert m.u32(data + 48) == layout
+    assert pixel(0, 220) == rgb565(0x00ff00)
+    assert pixel(32, 220) == rgb565(0x66ff00)
+    assert pixel(96, 220) == 0
+    assert m.u32(MODULE + symbols['gr_line_middle']) == 0
+
+    middle = 0x80000000 | (20 << 24) | 3
+    m.u32(data + 40, middle)
+    m.call(MODULE + symbols['gr_play'], FB, 0)
+    assert m.u32(MODULE + symbols['gr_line_middle']) == 1
+
+    selected_id = [3]
+    m.stub(gr.XL.selected, lambda machine: machine.reg('r0', selected_id[0]))
+    m.stub(gr.XL.dsp_lock)
+    m.stub(gr.XL.dsp_unlock)
+    m.u32(gr.XL.dsp_ptr, DSP)
+    m.u32(DSP + 0x4400, BLOCKS)
+    m.u32(DSP + 0x14 + 0x54 * 2, 7)
+    block_object = BLOCKS + 0x100 * 2
+    m.u32(BLOCKS + 0x24 + 4 * 7, block_object)
+    m.u8(block_object + 5, 1)
+    m.u32(block_object + 0x54, COMP_NAMES[0])
+    top = 0x80000000 | (1 << 8) | (20 << 24) | 3
+    m.u32(data + 40, top)
+    m.call(MODULE + symbols['gr_edit'], FB, 0x2812a0a0)
+    assert pixel(0, 220) == rgb565(0x00ff00)
+
+    selected_id[0] = 4
+    m.u32(BLOCKS + 0x14 + 0x54 * 3, 8)
+    other = BLOCKS + 0x100 * 3
+    m.u32(BLOCKS + 0x24 + 4 * 8, other)
+    m.u8(other + 5, 1)
+    m.u32(other + 0x54, 1234)
+    m.call(MODULE + symbols['gr_edit'], FB, 0x2812a0a0)
+    assert pixel(0, 220) == 0
+
+
+@pytest.mark.firmware
+def test_xl_gr_composes_with_bpm_dsp_and_breathing_line():
+    import features.gr as gr
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    entries, enabled = pm.menu_entries(lambda n: pa.get_entry_swapped(archive, n), features.load(),
+                                       {'HX_GR': '1', 'HX_BPM': '1', 'HX_DSP_METER': '1',
+                                        'HX_BREATHING_LINE': '1', 'HX_REAL_NAMES': '1'},
+                                       setting_ids.by_name(), layout=pm.XL_MENU)
+    names = {features.name(feature) for feature in enabled}
+    assert {'gr', 'bpm', 'dsp_meter', 'breathing_line', 'real_names'} <= names
+    read, stock = reader(entries[0]), reader(pa.get_entry_swapped(archive, 0))
+    for site in (gr.XL.rx_cb_lit, gr.XL.play_paint_lit, gr.XL.edit_paint_lit):
+        assert read(site, 4) != stock(site, 4), hex(site)
 
 
 LIGHTS_DB = (1, 2, 3, 4, 6, 8, 10, 14, 19, 25)

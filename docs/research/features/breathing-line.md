@@ -6,4 +6,6 @@ An animated Home divider. Status tags as in [conventions.md](../conventions.md).
 
 - **Speed Tempo** [verified on unit, from RAM on 2026-11-11: each Type on Tempo, its beats a cycle chosen over boots 1 and 2]: the cycle is a whole number of beats (`bl_beats`, by Type) of the beat in whole ms, `(u32)(60000.0f / BPM)` as the stock beat and bpm.s take it, from Global BPM (15) when Tempo Select (14) is 2, else Preset BPM (16). Only the rate follows the tempo, not the phase: the line's cycle does not start on the Tap LED's beat. With no tempo (outside 1..1023 BPM) it runs at the default Speed.
 
+- **HX Stomp XL** [verified on unit from RAM: Play placement captured and an Edit–Play–Edit round trip completed without a freeze]: both Play and Edit use the native base/selection rectangle pair at `0x281f927c` and `0x281f9298`, referenced by the XL stock layout. The renderer validates the visible XL rectangle geometry before filling it, so unrelated rectangles are skipped. Play adds 36 framebuffer-y units to place the line in the gap above the switch tiles; Edit keeps the native y. Off restores the two stock nodes. The tick requests the matching paint list (both lists for XL Play); menu painters are not hooked. One round trip does not rule out freezes in other states.
+
 The divider and painting: [m4/home-screen.md](../m4/home-screen.md).

@@ -1,5 +1,6 @@
 """tools/features/real_names.py: titles that fit and the font draws, opt-in on the web page and off in build.py by default, and the Entry 0 it builds:
 every renamed model's short name and browser items, nothing else."""
+import os
 import struct
 
 import pytest
@@ -7,7 +8,9 @@ import pytest
 import features
 import m4cache
 import patch_amp as pa
+import patch_menu as pm
 from features import real_names as rn
+from features import splash
 from firmware import built, menu_entry0, reader, stock_e0, stock_entry
 
 MODS = features.load()
@@ -30,9 +33,9 @@ def test_off_unless_asked_for():
     assert rn in features.enabled(MODS, {'HX_REAL_NAMES': '1'})
 
 
-def tables(read):
+def tables(read, device=pa.E0_DEVICES[0x28d8fa80]):
     """{name index: short name}, {name index: [browser item names]} of an Entry 0, and the byte ranges the names take."""
-    A = pa.E0_DEVICES[0x28d8fa80]
+    A = device
     rows = struct.unpack('<I', read(A.TAB2_BASE_PTR, 4))[0]
     _, n = pa._decode_thumb_movw(read(A.TAB2_CNT_INSN, 4))
     short, browser, spans = {}, {}, []
@@ -75,6 +78,27 @@ def test_builds_the_real_names():
     renamed = [ni for ni in short if short[ni] != old[ni]]
     assert len(renamed) == sum(rn.real_name(names[ni], old[ni]) != old[ni] for ni in old) > 400
     assert all(all(b == short[ni] for b in browser.get(ni, ())) for ni in renamed)
+
+
+@pytest.mark.firmware
+def test_xl_builds_real_names_with_shared_model_tables():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    entries, on = pm.menu_entries(load, [splash, rn], {'HX_REAL_NAMES': '1'}, {}, layout=pm.XL_MENU)
+    assert rn in on
+    device = pa.E0_DEVICES[pm.XL_MENU.base]
+    old, _, _ = tables(reader(load(0)), device)
+    short, browser, _ = tables(reader(entries[0]), device)
+    names = rn.strings(load(3))
+    by_name = {names[index]: index for index in short}
+    assert short[by_name['HD2_DistDeezOneModMono']] == 'Boss DS-1 Mod'
+    assert browser[by_name['HD2_DistDeezOneModStereo']] == ['Boss DS-1 Mod']
+    renamed = [index for index in short if short[index] != old[index]]
+    assert len(renamed) == sum(rn.real_name(names[index], old[index]) != old[index] for index in old) > 400
+    assert all(all(title == short[index] for title in browser.get(index, ())) for index in renamed)
 
 
 @pytest.mark.firmware

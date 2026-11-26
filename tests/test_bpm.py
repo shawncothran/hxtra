@@ -207,7 +207,8 @@ class Bpm:
 @pytest.fixture
 def m4(m4emu):
     if 'bpm' not in _code:
-        _code['bpm'] = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(), inc={'tap.inc': '.equ TAP_NOW, 0\n'})
+        _code['bpm'] = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(),
+                                      inc={'tap.inc': '.equ TAP_NOW, 0\n', 'bpm.inc': bpm.bpm_inc(bpm.STOMP)})
     return Bpm(m4emu, *_code['bpm'])
 
 
@@ -216,8 +217,181 @@ def m4_tap(m4emu):
     """bpm.s built with Tap LED Color, whose shown colour is at TAP_NOW."""
     if 'bpm_tap' not in _code:
         _code['bpm_tap'] = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(),
-                                          inc={'tap.inc': f'.equ TAP_NOW, {TAP_NOW:#x}\n'})
+                                          inc={'tap.inc': f'.equ TAP_NOW, {TAP_NOW:#x}\n',
+                                               'bpm.inc': bpm.bpm_inc(bpm.STOMP)})
     return Bpm(m4emu, *_code['bpm_tap'])
+
+
+def test_xl_transition_acquires_view_lock_before_widget_lock(m4emu):
+    code, symbols = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(),
+                                   inc={'tap.inc': '.equ TAP_NOW, 0\n', 'bpm.inc': bpm.bpm_inc(bpm.XL)},
+                                   layout=pm.XL_MENU)
+    machine = m4emu.M4(code, MOD)
+    for fn in (bpm.XL.mutex_lock, bpm.XL.widget_lock, bpm.XL.view_sync, bpm.XL.mutex_unlock):
+        machine.stub(fn)
+
+    machine.call(MOD + symbols['bpm_xl_transition_lock'])
+    machine.call(MOD + symbols['bpm_xl_transition_sync'])
+    assert [address for address, _ in machine.log] == [
+        bpm.XL.mutex_lock & ~1, bpm.XL.widget_lock & ~1, bpm.XL.view_sync & ~1, bpm.XL.mutex_unlock & ~1]
+    assert machine.calls(bpm.XL.mutex_lock)[0][0] == bpm.XL.view_mutex
+    assert machine.calls(bpm.XL.mutex_unlock)[0][0] == bpm.XL.view_mutex
+
+
+def test_xl_home_paint_formats_and_draws_the_bpm_text(m4emu):
+    code, symbols = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(),
+                                   inc={'tap.inc': '.equ TAP_NOW, 0\n', 'bpm.inc': bpm.bpm_inc(bpm.XL)},
+                                   layout=pm.XL_MENU)
+    machine = m4emu.M4(code, MOD)
+    ids = setting_ids.by_name()
+    settings = {14: 2, 15: bits(120.0), ids['bpm.font']: 1, ids['bpm.color']: 2, ids['bpm.dot']: 2}
+    calls, misaligned = [], []
+
+    def check_stack(m):
+        if m.reg('sp') % 8:
+            misaligned.append((m.reg('pc'), m.reg('sp')))
+
+    def get_value(m):
+        check_stack(m)
+        value = settings.get(m.reg('r0'))
+        if value is None:
+            m.reg('r0', -1)
+        else:
+            m.write(m.reg('r1'), struct.pack('<II', 3, value & 0xffffffff))
+            m.reg('r0', 0)
+
+    def set_text(m):
+        check_stack(m)
+        calls.append(('text', m.read(m.reg('r1'), m.reg('r2')).split(b'\0')[0]))
+
+    machine.stub(bpm.XL.get, get_value)
+    for fn in (bpm.XL.text_init, bpm.XL.text_pos, bpm.XL.text_anchor, bpm.XL.text_font,
+               bpm.XL.text_color, bpm.XL.text_visible, bpm.XL.text_erase, bpm.XL.text_draw,
+               bpm.XL.dot_init, bpm.XL.dot_anchor, bpm.XL.dot_visible, bpm.XL.dot_pos, bpm.XL.dot_size,
+               bpm.XL.dot_color, bpm.XL.dot_erase, bpm.XL.dot_draw,
+               bpm.XL.widget_lock, bpm.XL.widget_unlock, bpm.XL.redraw):
+        machine.stub(fn, check_stack)
+    machine.stub(bpm.XL.text_set, set_text)
+    machine.write(MOD + symbols['bpm_data'] + 4, b'\x01')
+    machine.u32(MOD + symbols['bpm_data'] + 8, 1001)
+    machine.call(MOD + symbols['bpm_before_xl'], 0x28d1f650, 0x2812aa18)
+    assert ('text', b'120') in calls
+    assert machine.u32(MOD + symbols['bpm_data'] + 20) == 1, 'widget construction is lazy and happens once'
+    visible = [call for call in machine.calls(bpm.XL.dot_visible) if call[1] == 1]
+    assert len(visible) == bpm.XL.dots
+    assert len(machine.calls(bpm.XL.dot_init)) == bpm.XL.dots
+    assert {call[1] for call in machine.calls(bpm.XL.dot_color)} == {0xff0000}
+    settings[ids['bpm.dot']] = 3
+    machine.log.clear()
+    machine.call(MOD + symbols['bpm_before_xl'], 0x28d1f650, 0x2812aa18)
+    assert not [call for call in machine.calls(bpm.XL.dot_visible) if call[1] == 1]
+    machine.call(MOD + symbols['bpm_after_xl'], 0x28d1f650, 0x2812aa18)
+    assert machine.calls(bpm.XL.text_draw)[0][:3] == (0x28d1f650, 0x28d1f650, MOD + symbols['bpm_widget'])
+    assert not misaligned, f'XL BPM calls stock functions with an unaligned stack: {misaligned}'
+
+
+def test_xl_tick_gates_and_limits_home_repaints(m4emu):
+    code, symbols = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(),
+                                   inc={'tap.inc': '.equ TAP_NOW, 0\n', 'bpm.inc': bpm.bpm_inc(bpm.XL)},
+                                   layout=pm.XL_MENU)
+    machine = m4emu.M4(code, MOD)
+    machine.stub(bpm.XL.redraw)
+    machine.write(bpm.XL.fs_functions, b'\x01')
+    data = MOD + symbols['bpm_data']
+    machine.u32(data, 1)
+    machine.write(data + 7, b'\x01')
+    machine.u32(data + 8, 998)
+
+    for elapsed in (999, 1000):
+        machine.log.clear()
+        machine.call(MOD + symbols['bpm_tick_xl'])
+        assert bool(machine.calls(bpm.XL.redraw)) == (elapsed == 1000)
+        assert machine.u32(data + 8) == elapsed
+
+    machine.u32(data + 8, 1500)
+    machine.u32(data + 24, 0)
+    machine.u32(data + 28, 0)
+    repaints = []
+    for tick in range(1, 1001):
+        machine.log.clear()
+        machine.call(MOD + symbols['bpm_tick_xl'])
+        if machine.calls(bpm.XL.redraw):
+            repaints.append(tick)
+    assert repaints == list(range(20, 1001, 20))
+    assert machine.u32(data + 24) == 1000
+    machine.log.clear()
+    machine.call(MOD + symbols['bpm_tick_xl'])
+    assert not machine.calls(bpm.XL.redraw)
+
+
+def test_xl_ring_send_drives_the_dot_and_keeps_tap_tempo_off(m4emu):
+    code, symbols = m4emu.assemble('src/m4/bpm.s', features.load(), setting_ids.by_name(),
+                                   inc={'tap.inc': '.equ TAP_NOW, 0\n', 'bpm.inc': bpm.bpm_inc(bpm.XL)},
+                                   layout=pm.XL_MENU)
+    machine = m4emu.M4(code, MOD)
+    machine.stub(bpm.XL.redraw)
+    machine.stub(bpm.XL.led_send_rest, code=POP_PC)
+
+    def get_value(m):
+        m.write(m.reg('r1'), struct.pack('<II', 1, 0))
+        m.reg('r0', 0)
+
+    machine.stub(bpm.XL.get, get_value)
+    machine.write(bpm.XL.fs_functions, b'\x01')
+    data = MOD + symbols['bpm_data']
+    rings = MOD + symbols['bpm_rings']
+    machine.u32(data, 1)
+    machine.write(data + 7, b'\x01')
+
+    machine.call(MOD + symbols['bpm_ledsend'], bpm.XL.ring_id, 0x00ff0000)
+    assert machine.read(rings, 1) == b'\x01'
+    machine.log.clear()
+    machine.call(MOD + symbols['bpm_tick_xl'])
+    assert machine.read(data + 4, 1) == b'\x01'
+    assert machine.calls(bpm.XL.redraw)
+
+    machine.call(MOD + symbols['bpm_tapled_xl'], 26, OUT)
+    assert machine.read(data + 6, 1) == b'\x00'
+    assert machine.read(OUT + 4, 4) == struct.pack('<I', 1)
+    machine.log.clear()
+    machine.call(MOD + symbols['bpm_ledsend'], bpm.XL.ring_id, 0x00ff0000)
+    assert machine.calls(bpm.XL.led_send_rest)[0][1] == 0
+    assert machine.read(rings, 1) == b'\x01', 'the dot follows the intended beat while Tap Tempo LED is off'
+    machine.call(MOD + symbols['bpm_tap'], 0, 0)
+    assert machine.read(data + 4, 2) == b'\x01\x01'
+
+
+@pytest.mark.firmware
+def test_xl_builds_the_supported_bpm_settings(monkeypatch):
+    stock = os.environ.get('HX_STOMP_XL_HXF')
+    if not stock:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    seen, module = {}, pm.Patch.module
+
+    def capture(patch, path, inc=None):
+        result = module(patch, path, inc)
+        seen[path] = result
+        return result
+
+    monkeypatch.setattr(pm.Patch, 'module', capture)
+    archive = pa.load_l6ia_from_any(stock)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    entries, on = pm.menu_entries(load, features.load(),
+                                  {'HX_BPM': '1', 'HX_DSP_METER': '1', 'HX_REAL_NAMES': '1'},
+                                  setting_ids.by_name(), layout=pm.XL_MENU)
+    enabled = {features.name(feature) for feature in on}
+    assert {'bpm', 'dsp_meter', 'real_names'} <= enabled
+    assert [setting.key for setting in pm.feature_settings(bpm, pm.XL_MENU)] == ['font', 'color', 'dot']
+    meter = next(feature for feature in on if features.name(feature) == 'dsp_meter')
+    assert [setting.key for setting in pm.feature_settings(meter, pm.XL_MENU)] == ['browser', 'blocks', 'total']
+    read, original = reader(entries[0]), reader(load(0))
+    assert read(bpm.XL.home_paint_lit, 4) != original(bpm.XL.home_paint_lit, 4)
+    assert read(bpm.XL.led_send, 4) != original(bpm.XL.led_send, 4)
+    assert read(bpm.XL.tap_core, 4) != original(bpm.XL.tap_core, 4)
+    assert all(read(site, 4) != original(site, 4) for site, _ in bpm.XL.tap_reads)
+    module = seen['src/m4/bpm.s']
+    assert all(branch_target(site, read(site, 4)) == module['bpm_xl_transition_lock'] for site in bpm.XL.transition_locks)
+    assert all(branch_target(site, read(site, 4)) == module['bpm_xl_transition_sync'] for site in bpm.XL.transition_syncs)
 
 
 def bits(f):
@@ -494,10 +668,10 @@ def test_a_build_with_tap_led_color_hands_bpm_its_shown_colour(monkeypatch):
         return seen[path][0]
     monkeypatch.setattr(pm.Patch, 'module', module)
     menu_entry0(stock_e0(), None, {'HX_BPM': '1', 'HX_TAP_COLOR': '1'})
-    assert seen['src/m4/bpm.s'][1] == {'tap.inc': f'.equ TAP_NOW, {seen[tap_color.MODULE][0][tap_color.NOW]:#x}\n'}
+    assert seen['src/m4/bpm.s'][1]['tap.inc'] == f'.equ TAP_NOW, {seen[tap_color.MODULE][0][tap_color.NOW]:#x}\n'
     seen.clear()
     menu_entry0(stock_e0(), None, {'HX_BPM': '1'})
-    assert seen['src/m4/bpm.s'][1] == {'tap.inc': '.equ TAP_NOW, 0x0\n'}
+    assert seen['src/m4/bpm.s'][1]['tap.inc'] == '.equ TAP_NOW, 0x0\n'
 
 
 @pytest.mark.parametrize('value, xs', [(0, range(69, 99)), (1, range(221, 251)), (2, [*range(69, 99), *range(221, 251)]),

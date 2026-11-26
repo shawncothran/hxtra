@@ -1,17 +1,22 @@
-"""Tap LED Color: Global Settings > Displays picks the TAP footswitch's colour, for its ring as it blinks the tempo and for its
-switch icon and label on the Home screen, from the stock footswitch palette (src/m4/tap_color.s). External MIDI clock keeps the
-stock blue ring. Rainbow moves the ring a small step round the colour wheel at each beat, Random lights it a random colour; both with a White label. Off
-stops the blink: Tap LED Color takes the stock Tap Tempo LED's place in Displays and keeps it in step. BPM's Color Tempo reads tap_now."""
+"""Tap LED Color: Global Settings > Displays picks the TAP footswitch's colour, for its ring and Stomp Home-screen icon and label,
+from the stock footswitch palette (src/m4/tap_color.s). External MIDI clock keeps the stock blue ring. Rainbow moves the ring a
+small step round the colour wheel at each beat, Random lights it a random colour; both with a White label. Off stops the
+blink and keeps the stock Tap Tempo LED setting in step. BPM's Color Tempo reads tap_now."""
+import types
+
+import patch_menu as pm
 from features import Setting
 
 FLAG = 'HX_TAP_COLOR'
 MENU = 'Displays'
 ORDER = 10                          # before BPM, which reads tap_now
 MODULE, NOW = 'src/m4/tap_color.s', 'tap_now'
+XL_PORTED = True
 SETTINGS = (     # a label's last line shows on top, as BPM's 'Size\nFont' reads Font over Size
     Setting('color', b'Color\nTap LED', (b'Red', b'DkOrange', b'LtOrange', b'Yellow', b'Green', b'Teal', b'Blue', b'Violet',
                                          b'Pink', b'White', b'Rainbow', b'Random', b'Off')),
 )
+XL_SETTINGS = SETTINGS
 REPLACES = 26                       # Tap Tempo LED: Off is Tap LED Color's Off, any colour On
 
 # The stock palette, by value: the LED driver's lit colours (0x28dd8030, 0x00BBGGRR) and the block categories' label colours
@@ -22,6 +27,21 @@ TEXTS = (0xff0000, 0xff5a18, 0xf5911e, 0xead82f, 0x43ff40, 0x3cceb5, 0x0097e4, 0
 RAINBOW_ANCHORS, SHADES = (0, 1, 3, 4, 6, 7), 7
 
 LED_COLOUR = 0x28db81fc             # (led, 0xBBGGRR): an LED's lit colour
+STOMP = types.SimpleNamespace(layout=pm.STOMP_MENU, led_colour=LED_COLOUR | 1, clock=0x28da6459,
+                              get=0x28e1f845, off_black=0, ring_calls=())
+XL = types.SimpleNamespace(
+    layout=pm.XL_MENU, led_colour=0x28dbb309, clock=0x28da93ad, get=0x28e25c71, off_black=1,
+    home_paint_lit=0x28d99a44, home_paint=0x28dcc98d,
+    ring_calls=((0x28d9eddc, bytes.fromhex('1cf094fa'), 'tap_led'),
+                (0x28d9ee84, bytes.fromhex('1cf040fa'), 'tap_led_again')))
+
+
+def tap_inc(profile):
+    return ''.join(f'.equ {name}, {value:#x}\n' for name, value in (
+        ('LED_COLOUR', profile.led_colour), ('CLOCK', profile.clock | 1), ('TAP_OFF_BLACK', profile.off_black),
+        ('GET_VALUE', profile.layout.get | 1), ('SETTER_CONTEXT', profile.layout.context | 1),
+        ('SETTER', profile.layout.setter | 1)))
+
 # The stock beat's two calls that light the TAP ring red, each after loading the red from its literal; the external clock's blue
 # calls beside them stay stock.
 TAP_RED, TAP_RED_LITS = 0x28e280b0, (0x28d9bee0, 0x28d9bf84)
@@ -58,7 +78,15 @@ def rainbow_inc():
 
 
 def apply(p):
-    m = p.module(MODULE, inc={'rainbow.inc': rainbow_inc()})
+    profile = XL if getattr(p, 'layout', pm.STOMP_MENU).base == pm.XL_MENU.base else STOMP
+    m = p.module(MODULE, inc={'rainbow.inc': rainbow_inc(), 'tap.inc': tap_inc(profile)})
+    if profile is XL:
+        for site, stock, handler in profile.ring_calls:
+            p.own_call(site, profile.led_colour & ~1, f'the XL TAP ring color at {site:#x}', m[handler])
+        p.chain_ptr(profile.home_paint_lit, profile.home_paint, before=m['tap_sync_page'])
+        p.chain_entry(CHANGED + pm.XL_MENU_SHIFT, CHANGED_STOCK, after=m['tap_changed'])
+        p.chain_entry(PAGE + pm.XL_MENU_SHIFT, PAGE_STOCK, after=m['tap_sync_page'])
+        return
     for lit in TAP_RED_LITS:
         if p.u32(lit) != TAP_RED:
             raise SystemExit(f'patch-menu: the stock beat does not load its red at {lit:#x}')

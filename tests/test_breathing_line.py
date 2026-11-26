@@ -1,15 +1,18 @@
 """tools/features/breathing_line.py and src/m4/breathing_line.s: the settings and their IDs, the hooks on the firmware, and the
 handlers run in tests/m4emu.py against a model of each Type and Color."""
 import math
+import os
 import struct
+from types import SimpleNamespace
 
 import pytest
 
 import features
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
 from features import breathing_line as bl, gr
-from firmware import assert_virtual, menu_entry0, reader, stock_e0
+from firmware import assert_virtual, branch_target, menu_entry0, reader, stock_e0
 
 RATES = [round(2 ** 32 / (ms * 1000)) for ms in (8000, 6000, 4800, 4000, 3200, 2500, 2000, 1500, 1100, 800)]
 
@@ -38,7 +41,72 @@ def test_settings_values_defaults_and_ids():
     assert bl.FLAG == 'HX_BREATHING_LINE'
 
 
+def breathing_line_paint_hooks(layout):
+    paint_hooks = []
+    patch = SimpleNamespace(layout=layout, modules={})
+    patch.module = lambda path, inc: {
+        'bl_paint': 'bl_paint', 'bl_paint_play': 'bl_paint_play',
+        'bl_paint_edit': 'bl_paint_edit', 'bl_tick': 'bl_tick'}
+    patch.chain_ptr = lambda site, target, **kwargs: paint_hooks.append((site, target))
+    patch.chain_bl = lambda site, target, **kwargs: None
+    bl.apply(patch)
+    return paint_hooks
+
+
+def test_stomp_breathing_line_keeps_its_home_paint_hook():
+    assert breathing_line_paint_hooks(pm.STOMP_MENU) == [(bl.HOME_PAINT_LIT, bl.HOME_PAINT)]
+
+
+def test_xl_breathing_line_paints_play_and_edit_views():
+    assert set(breathing_line_paint_hooks(pm.XL_MENU)) == {
+        (0x28d99a44, 0x28dcc98d), (bl.XL.paint_lit, bl.XL.paint)}
+
+
 # --- the build, on the stock firmware ---
+
+@pytest.mark.firmware
+@pytest.mark.parametrize('count, width', [(1, 320), (3, 106), (4, 80), (8, 40)])
+def test_xl_stock_divider_sizes_one_selection_over_a_background(m4emu, count, width):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    stock = reader(pa.get_entry_swapped(archive, 0))
+    size, position, selected = 0x28e2aed0, 0x28e2aeb8, 0x281f9298
+    assert branch_target(0x28dc97f0, stock(0x28dc97f0, 4)) == size
+    assert branch_target(0x28dc980c, stock(0x28dc980c, 4)) == position
+    assert struct.unpack('<II', stock(0x28dc9818, 8)) == (selected, selected - 0x1c)
+    assert struct.unpack('<II', stock(0x28dc89d8, 8)) == (selected - 0x1c, selected)
+    assert bl.XL.play_segments == bl.XL.edit_segments == selected - 0x1c
+    assert struct.unpack('<I', stock(0x28d99df8, 4))[0] == 0x28d96565
+    assert struct.unpack('<I', stock(0x28d99e0c, 4))[0] == 0x2812c240
+    assert branch_target(0x28dc880e, stock(0x28dc880e, 4)) == 0x28e2ad98
+    assert branch_target(0x28dc8818, stock(0x28dc8818, 4)) == 0x28e2ad98
+    machine = m4emu.M4(stock(0x28dc97c8, 0x58), 0x28dc97c8)
+    machine.stub(size)
+    machine.stub(position)
+    machine.u32(selected + 8, 119)
+    machine.call(0x28dc97c8, count)
+    assert [args[:3] for args in machine.calls(size)] == [(selected, width, 2)]
+    assert [args[:3] for args in machine.calls(position)] == ([(selected, 0, 119)] if count == 1 else [])
+
+
+@pytest.mark.firmware
+def test_xl_build_hooks_edit_divider_and_tick():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda index: pa.get_entry_swapped(archive, index)
+    entries, enabled = pm.menu_entries(load, features.load(), {'HX_BREATHING_LINE': '1'},
+                                       setting_ids.by_name(), layout=pm.XL_MENU)
+    assert 'breathing_line' in [features.name(feature) for feature in enabled]
+    read, stock = reader(entries[0]), reader(load(0))
+    assert read(bl.XL.play_paint_lit, 4) != stock(bl.XL.play_paint_lit, 4)
+    assert read(bl.XL.paint_lit, 4) != stock(bl.XL.paint_lit, 4)
+    assert read(bl.XL.tick, 4) != stock(bl.XL.tick, 4)
+    for setting in bl.SETTINGS:
+        assert_virtual(entries[0], bl, setting)
 
 @pytest.mark.firmware
 def test_build_serves_the_settings_virtually_and_hooks_the_paint_and_the_tick():
@@ -49,6 +117,7 @@ def test_build_serves_the_settings_virtually_and_hooks_the_paint_and_the_tick():
         assert_virtual(new, bl, s)
     read, stock = reader(new), reader(e0)
     assert read(bl.HOME_PAINT_LIT, 4) != stock(bl.HOME_PAINT_LIT, 4)
+    assert read(bl.EDIT_PAINT_LIT, 4) == stock(bl.EDIT_PAINT_LIT, 4)
     assert read(bl.LED_TICK_CALL, 4) != stock(bl.LED_TICK_CALL, 4)
 
 
@@ -63,10 +132,29 @@ def test_a_build_with_the_gr_meter_hands_the_line_its_shown_word(monkeypatch):
         return seen[path][0]
     monkeypatch.setattr(pm.Patch, 'module', module)
     menu_entry0(stock_e0(), None, {'HX_BREATHING_LINE': '1', 'HX_GR': '1'})
-    assert seen['src/m4/breathing_line.s'][1] == {'gr.inc': f'.equ GR_SHOWN, {seen[gr.MODULE][0]["data"] + gr.SHOWN:#x}\n'}
+    assert seen['src/m4/breathing_line.s'][1]['gr.inc'] == f'.equ GR_SHOWN, {seen[gr.MODULE][0]["data"] + gr.SHOWN:#x}\n'
     seen.clear()
     menu_entry0(stock_e0(), None, {'HX_BREATHING_LINE': '1'})
-    assert seen['src/m4/breathing_line.s'][1] == {'gr.inc': '.equ GR_SHOWN, 0x0\n'}
+    assert seen['src/m4/breathing_line.s'][1]['gr.inc'] == '.equ GR_SHOWN, 0x0\n'
+
+
+@pytest.mark.firmware
+def test_xl_build_with_gr_hands_the_line_its_middle_divider_word(monkeypatch):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    seen, real = {}, pm.Patch.module
+
+    def module(self, path, inc=None):
+        seen[path] = (real(self, path, inc), inc)
+        return seen[path][0]
+
+    monkeypatch.setattr(pm.Patch, 'module', module)
+    pm.menu_entries(lambda n: pa.get_entry_swapped(archive, n), features.load(),
+                    {'HX_BREATHING_LINE': '1', 'HX_GR': '1'}, setting_ids.by_name(), layout=pm.XL_MENU)
+    gr_module = seen[gr.MODULE][0]
+    assert seen['src/m4/breathing_line.s'][1]['gr.inc'] == f'.equ GR_SHOWN, {gr_module["gr_line_middle"]:#x}\n'
 
 
 # --- the handlers, run in unicorn: a model of each first ---
@@ -165,24 +253,40 @@ _code = {}
 
 
 class Line:
-    """breathing_line.s in the M4, with four stock divider segments; GET_VALUE answers from self.settings, the clock from self.now."""
+    """breathing_line.s in the M4, with a stock or XL divider; settings and the clock are modelled."""
 
-    def __init__(self, m4emu, text, sym):
+    def __init__(self, m4emu, text, sym, profile=bl.STOMP):
         self.sym, self.settings, self.now, self.fills = sym, {}, 0, []
+        self.profile = profile
         self.m = m4emu.M4(text, MOD)
-        for at in (REDRAW, LOCK, UNLOCK):
+        for at in (profile.redraw & ~1, profile.lock & ~1, profile.unlock & ~1):
             self.m.stub(at)
-        self.m.stub(GET_VALUE, self.get_value)
-        self.m.stub(CLOCK, lambda m: m.reg('r0', self.now))
+        self.m.stub(profile.get & ~1, self.get_value)
+        self.m.stub(profile.clock & ~1, lambda m: m.reg('r0', self.now))
         self.m.stub(FILL, lambda m: self.fills.append((m.reg('r0'), m.reg('r1'), m.reg('r2'), m.reg('r3'), *m.stack_args(3))))
-        for k in range(4):
-            self.segment(k, h=1)
+        if profile is bl.XL:
+            for k in range(2):
+                self.segment(k, h=2 if k == 1 else 1, segments=profile.edit_segments, node_index=k)
+        else:
+            for k in range(4):
+                self.segment(k, segments=profile.play_segments, node_index=k)
         self.set_data(6, START_MS + 1)
 
-    def segment(self, k, h=1, visible=1):
-        w = SEGMENTS + 0x1c * k
-        self.m.write(w, struct.pack('<5I', 0x666666, 80 * k, 0x77, 80, h) + bytes([0, visible, 0, 0]) + struct.pack('<I', NODES + 0x28 * k))
-        self.m.u8(NODES + 0x28 * k + 0x24, 0)
+    def segment(self, k, h=1, visible=1, segments=None, node_index=None):
+        segments = segments if segments is not None else self.profile.play_segments
+        node_index = k if node_index is None else node_index
+        w = segments + 0x1c * k
+        if self.profile is bl.XL and segments == self.profile.edit_segments:
+            self.m.u32(w + 4, 0)
+            self.m.u32(w + 8, 120)
+            self.m.u32(w + 12, 320)
+            self.m.u32(w + 16, h)
+            self.m.u8(w + 0x14, 6)
+            self.m.u8(w + 0x15, visible)
+        else:
+            self.m.write(w, struct.pack('<5I', 0x666666, 80 * k, 0x77, 80, h) + bytes([0, visible, 0, 0]))
+        self.m.u32(w + 0x18, NODES + 0x28 * node_index)
+        self.m.u8(NODES + 0x28 * node_index + 0x24, 0)
 
     def dirty(self, k):
         return self.m.read(NODES + 0x28 * k + 0x24, 1)[0]
@@ -201,18 +305,29 @@ class Line:
     def set_data(self, i, v):
         self.m.u32(MOD + self.sym['bl_data'] + 4 * i, v)
 
-    def paint(self, fb=0x28d1ce98, stock=None, **settings):
+    def paint(self, fb=0x28d1ce98, stock=None, view=None, **settings):
         self.settings = {IDS[k]: v for k, v in settings.items()} | (stock or {})
         self.fills = []
-        self.call('bl_paint', fb)
+        view = view or ('edit' if self.profile is bl.XL else 'play')
+        if self.profile is bl.XL and view == 'play':
+            selected = self.profile.play_segments + 0x1c
+            self.m.u32(selected + 4, 240)
+            self.m.u32(selected + 8, 119)
+            self.m.u32(selected + 12, 80)
+        self.call(f'bl_paint_{view}', fb)
         return self.fills
+
+    def expected_redraw(self):
+        if self.profile is bl.XL:
+            return (1, 1) if self.data(7) == 0 else (1, 0)
+        return (1, 0) if self.data(7) == 1 else (0, 1)
 
 
 @pytest.fixture
 def line(m4emu):
     if 'line' not in _code:
         _code['line'] = m4emu.assemble('src/m4/breathing_line.s', features.load(), setting_ids.by_name(),
-                                       inc={'gr.inc': '.equ GR_SHOWN, 0\n'})
+                                       inc={'gr.inc': '.equ GR_SHOWN, 0\n', 'breathing.inc': bl.line_inc()})
     return Line(m4emu, *_code['line'])
 
 
@@ -223,8 +338,59 @@ GR_SHOWN = 0x28e7f000               # the GR meter's shown word, in a build with
 def line_gr(m4emu):
     if 'line_gr' not in _code:
         _code['line_gr'] = m4emu.assemble('src/m4/breathing_line.s', features.load(), setting_ids.by_name(),
-                                          inc={'gr.inc': f'.equ GR_SHOWN, {GR_SHOWN:#x}\n'})
+                                          inc={'gr.inc': f'.equ GR_SHOWN, {GR_SHOWN:#x}\n', 'breathing.inc': bl.line_inc()})
     return Line(m4emu, *_code['line_gr'])
+
+
+@pytest.fixture
+def line_xl(m4emu):
+    if 'line_xl' not in _code:
+        _code['line_xl'] = m4emu.assemble('src/m4/breathing_line.s', features.load(), setting_ids.by_name(),
+                                          inc={'gr.inc': '.equ GR_SHOWN, 0\n', 'breathing.inc': bl.line_inc(bl.XL)},
+                                          layout=pm.XL_MENU)
+    return Line(m4emu, *_code['line_xl'], profile=bl.XL)
+
+
+def test_xl_edit_divider_is_animated_with_xl_apis(line_xl):
+    fills = line_xl.paint(fb=0x28d1f650, motion=1, color=0, speed=0)
+    assert len(fills) == 80
+    assert [fill[1] for fill in fills] == list(range(0, 320, 4))
+    assert all(fill[0] == 0x28d1f650 and fill[2] == 120 and fill[3] == 4 and fill[4] == 2 for fill in fills)
+
+
+def test_xl_edit_divider_guard_skips_other_rectangles(line_xl):
+    for k in range(2):
+        line_xl.m.u32(bl.XL.segments + 0x1c * k + 12, 319)
+    assert line_xl.paint(fb=0x28d1f650, motion=1, color=0, speed=0) == []
+
+
+def test_xl_play_divider_uses_the_native_rectangle_pair(line_xl):
+    fills = line_xl.paint(fb=0x28d1f650, motion=1, color=0, speed=0, view='play')
+    assert len(fills) == 80
+    assert [fill[1] for fill in fills] == list(range(0, 320, 4))
+    assert {(fill[2], fill[4]) for fill in fills if fill[1] < 240} == {(156, 1)}
+    assert {(fill[2], fill[4]) for fill in fills if fill[1] >= 240} == {(155, 2)}
+
+
+def test_xl_animation_requests_the_edit_display_list(line_xl):
+    line_xl.paint(fb=0x28d1f650, motion=2, color=0, speed=0)
+    for _ in range(25):
+        line_xl.call('bl_tick')
+    assert [args[:2] for args in line_xl.m.calls(bl.XL.redraw)] == [(1, 0)]
+
+
+def test_xl_play_animation_requests_both_display_lists(line_xl):
+    line_xl.paint(fb=0x28d1f650, motion=2, color=0, speed=0, view='play')
+    for _ in range(25):
+        line_xl.call('bl_tick')
+    assert [args[:2] for args in line_xl.m.calls(bl.XL.redraw)] == [(1, 1)]
+
+
+def test_stomp_animation_requests_the_home_display_list(line):
+    line.paint(motion=2, color=0, speed=0, view='play')
+    for _ in range(25):
+        line.call('bl_tick')
+    assert [args[:2] for args in line.m.calls(REDRAW)] == [(0, 1)]
 
 
 PHASES = (0, 1, 0x1234, 0x3fff, 0x4000, 0x7fff, 0x8000, 0x8001, 0xa000, 0xbfff, 0xc000, 0xfeff, 0xffff)
@@ -419,7 +585,7 @@ def ticks(line, n):
     count = 0
     for _ in range(n):
         line.call('bl_tick')
-        assert all(regs[:2] == (0, 1) for regs in line.m.calls(REDRAW)), 'the request the layout code ends with'
+        assert all(regs[:2] == line.expected_redraw() for regs in line.m.calls(REDRAW)), 'repaint the last view that drew the line'
         count += len(line.m.calls(REDRAW))
     return count
 

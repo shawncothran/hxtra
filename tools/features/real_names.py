@@ -10,6 +10,7 @@ import patch_amp as pa
 
 FLAG = 'HX_REAL_NAMES'
 WEB = 'opt-in'
+XL_PORTED = True
 
 SHORT = 16                                  # Table 2 row bytes 4..20; byte 20 is a 0
 BROWSER = 16                                # a browser item's name[0x11] at +0xe, NUL-terminated
