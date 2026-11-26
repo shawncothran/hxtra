@@ -760,6 +760,8 @@ var EN = {
   "ram.s.start": "Starting the firmware…",
   "ram.ask.dfu": "The HX Stomp is in update mode. Click Continue and pick it in the browser's list (it may be called “LPC” or an unknown device).",
   "ram.ask.loader": "The RAM loader is running. Click Continue and pick it in the browser's list (an unknown device, 1209:0001). On Windows, if the list is empty, see the Zadig note above.",
+  "ram.unverifiedConfirm": "The loader could not verify the installed firmware. Continue only if this device has stock 3.80.0 installed. Continue?",
+  "ram.err.unverified": "The installed firmware could not be verified, so the RAM run was cancelled. Nothing was written. Turn the device off and on.",
   "ram.okTitle": "HXtra is running from RAM.",
   "ram.okText": "Try it out on the HX Stomp. Turn it off and on to go back to the installed firmware. To keep HXtra, install the file as below.",
   "ram.errTitle": "The RAM run stopped.",
@@ -935,6 +937,8 @@ var LANGS = {
     "ram.s.start": "Arrancando el firmware…",
     "ram.ask.dfu": "El HX Stomp está en modo de actualización. Pulsa Continuar y elígelo en la lista del navegador (puede llamarse “LPC” o aparecer como dispositivo desconocido).",
     "ram.ask.loader": "El cargador RAM está funcionando. Pulsa Continuar y elígelo en la lista del navegador (un dispositivo desconocido, 1209:0001). En Windows, si la lista está vacía, mira la nota sobre Zadig de arriba.",
+    "ram.unverifiedConfirm": "El cargador no pudo verificar el firmware instalado. Continúa solo si este dispositivo tiene instalado el firmware original 3.80.0. ¿Continuar?",
+    "ram.err.unverified": "No se pudo verificar el firmware instalado, por lo que se canceló la ejecución desde RAM. No se escribió nada. Apaga y enciende el dispositivo.",
     "ram.okTitle": "HXtra se está ejecutando desde RAM.",
     "ram.okText": "Pruébalo en el HX Stomp. Apágalo y enciéndelo para volver al firmware instalado. Para quedarte con HXtra, instala el archivo como se indica abajo.",
     "ram.errTitle": "La ejecución desde RAM se detuvo.",
@@ -1128,6 +1132,8 @@ var LANGS = {
     "ram.s.start": "Iniciando o firmware…",
     "ram.ask.dfu": "O HX Stomp está em modo de atualização. Clique em Continuar e escolha-o na lista do navegador (pode aparecer como “LPC” ou como dispositivo desconhecido).",
     "ram.ask.loader": "O carregador RAM está rodando. Clique em Continuar e escolha-o na lista do navegador (um dispositivo desconhecido, 1209:0001). No Windows, se a lista estiver vazia, veja a nota sobre o Zadig acima.",
+    "ram.unverifiedConfirm": "O carregador não conseguiu verificar o firmware instalado. Continue somente se este dispositivo tiver o firmware original 3.80.0 instalado. Continuar?",
+    "ram.err.unverified": "Não foi possível verificar o firmware instalado, então a execução pela RAM foi cancelada. Nada foi gravado. Desligue e ligue o dispositivo.",
     "ram.okTitle": "O HXtra está rodando da RAM.",
     "ram.okText": "Experimente no HX Stomp. Desligue e ligue para voltar ao firmware instalado. Para manter o HXtra, instale o arquivo como abaixo.",
     "ram.errTitle": "A sessão da RAM parou.",
@@ -1321,6 +1327,8 @@ var LANGS = {
     "ram.s.start": "Démarrage du firmware…",
     "ram.ask.dfu": "Le HX Stomp est en mode mise à jour. Cliquez sur Continue et choisissez-le dans la liste du navigateur (il peut s'appeler « LPC » ou apparaître comme appareil inconnu).",
     "ram.ask.loader": "Le chargeur RAM tourne. Cliquez sur Continuer et choisissez-le dans la liste du navigateur (un appareil inconnu, 1209:0001). Sous Windows, si la liste est vide, voyez la note sur Zadig plus haut.",
+    "ram.unverifiedConfirm": "Le chargeur n'a pas pu vérifier le firmware installé. Continuez uniquement si cet appareil utilise le firmware d'origine 3.80.0. Continuer ?",
+    "ram.err.unverified": "Le firmware installé n'a pas pu être vérifié ; l'exécution en RAM a donc été annulée. Rien n'a été écrit. Éteignez puis rallumez l'appareil.",
     "ram.okTitle": "HXtra tourne en RAM.",
     "ram.okText": "Essayez-le sur le HX Stomp. Éteignez-le et rallumez-le pour revenir au firmware installé. Pour garder HXtra, installez le fichier comme ci-dessous.",
     "ram.errTitle": "Le lancement en RAM s'est arrêté.",
@@ -1514,6 +1522,8 @@ var LANGS = {
     "ram.s.start": "Firmware wird gestartet…",
     "ram.ask.dfu": "Der HX Stomp ist im Update-Modus. Klicke auf Weiter und wähle ihn in der Liste des Browsers (er heißt eventuell „LPC“ oder erscheint als unbekanntes Gerät).",
     "ram.ask.loader": "Der RAM-Lader läuft. Klicke auf Weiter und wähle ihn in der Liste des Browsers (ein unbekanntes Gerät, 1209:0001). Unter Windows: Ist die Liste leer, sieh dir den Hinweis zu Zadig oben an.",
+    "ram.unverifiedConfirm": "Der Loader konnte die installierte Firmware nicht überprüfen. Fahre nur fort, wenn auf diesem Gerät die Original-Firmware 3.80.0 installiert ist. Fortfahren?",
+    "ram.err.unverified": "Die installierte Firmware konnte nicht überprüft werden. Der RAM-Start wurde abgebrochen und nichts geschrieben. Schalte das Gerät aus und wieder ein.",
     "ram.okTitle": "HXtra läuft aus dem RAM.",
     "ram.okText": "Probier es auf dem HX Stomp aus. Schalte ihn aus und wieder ein, um zur installierten Firmware zurückzukehren. Um HXtra zu behalten, installiere die Datei wie unten beschrieben.",
     "ram.errTitle": "Der RAM-Start wurde abgebrochen.",
@@ -1707,6 +1717,8 @@ var LANGS = {
     "ram.s.start": "Avvio del firmware…",
     "ram.ask.dfu": "L'HX Stomp è in modalità aggiornamento. Fai clic su Continua e sceglilo nell'elenco del browser (può chiamarsi “LPC” o comparire come dispositivo sconosciuto).",
     "ram.ask.loader": "Il caricatore RAM è in funzione. Fai clic su Continua e sceglilo nell'elenco del browser (un dispositivo sconosciuto, 1209:0001). Su Windows, se l'elenco è vuoto, vedi la nota su Zadig qui sopra.",
+    "ram.unverifiedConfirm": "Il caricatore non ha potuto verificare il firmware installato. Continua solo se su questo dispositivo è installato il firmware originale 3.80.0. Continuare?",
+    "ram.err.unverified": "Non è stato possibile verificare il firmware installato, quindi l'esecuzione dalla RAM è stata annullata. Non è stato scritto nulla. Spegni e riaccendi il dispositivo.",
     "ram.okTitle": "HXtra è in esecuzione dalla RAM.",
     "ram.okText": "Provalo sull'HX Stomp. Spegnilo e riaccendilo per tornare al firmware installato. Per tenere HXtra, installa il file come sotto.",
     "ram.errTitle": "L'avvio dalla RAM si è interrotto.",
@@ -1900,6 +1912,8 @@ var LANGS = {
     "ram.s.start": "ファームウェアを起動しています…",
     "ram.ask.dfu": "HX Stomp はアップデート・モードです。続ける をクリックし、ブラウザの一覧で選んでください（「LPC」や不明なデバイスと表示されることがあります）。",
     "ram.ask.loader": "RAM ローダーが動いています。続ける をクリックし、ブラウザの一覧で選んでください（不明なデバイス、1209:0001）。 Windows で一覧が空の場合は、上の Zadig の注記を参照してください。",
+    "ram.unverifiedConfirm": "ローダーはインストール済みのファームウェアを確認できませんでした。この機器に純正 3.80.0 がインストールされている場合のみ続行してください。続行しますか？",
+    "ram.err.unverified": "インストール済みファームウェアを確認できなかったため、RAM からの起動を中止しました。書き込みは行われていません。機器の電源を入れ直してください。",
     "ram.okTitle": "HXtra が RAM で動いています。",
     "ram.okText": "HX Stomp で試してみてください。電源を入れ直すとインストール済みのファームウェアに戻ります。HXtra を残すには、下の手順でファイルをインストールしてください。",
     "ram.errTitle": "RAM 起動が止まりました。",
@@ -2093,6 +2107,8 @@ var LANGS = {
     "ram.s.start": "正在启动固件…",
     "ram.ask.dfu": "HX Stomp 已进入更新模式。点击 继续，并在浏览器列表中选择它（可能显示为“LPC”或未知设备）。",
     "ram.ask.loader": "RAM 加载器正在运行。点击 继续，并在浏览器列表中选择它（未知设备，1209:0001）。 在 Windows 上，如果列表为空，请参阅上方关于 Zadig 的说明。",
+    "ram.unverifiedConfirm": "加载器无法验证已安装的固件。只有在此设备安装了原厂 3.80.0 固件时才可继续。是否继续？",
+    "ram.err.unverified": "由于无法验证已安装的固件，已取消从 RAM 运行。没有写入任何内容。请关闭设备后重新开启。",
     "ram.okTitle": "HXtra 正在从 RAM 运行。",
     "ram.okText": "在 HX Stomp 上试试吧。关机再开机即可回到已安装的固件。要保留 HXtra，请按下面的步骤安装文件。",
     "ram.errTitle": "从 RAM 运行已中止。",
@@ -2286,6 +2302,8 @@ var LANGS = {
     "ram.s.start": "펌웨어를 시작하는 중…",
     "ram.ask.dfu": "HX Stomp가 업데이트 모드입니다. 계속를 클릭하고 브라우저 목록에서 고르세요(“LPC” 또는 알 수 없는 장치로 보일 수 있습니다).",
     "ram.ask.loader": "RAM 로더가 실행 중입니다. 계속 을 클릭하고 브라우저 목록에서 고르세요(알 수 없는 장치, 1209:0001). Windows에서 목록이 비어 있으면 위의 Zadig 안내를 참고하세요.",
+    "ram.unverifiedConfirm": "로더가 설치된 펌웨어를 확인하지 못했습니다. 이 장치에 순정 3.80.0이 설치된 경우에만 계속하세요. 계속하시겠습니까?",
+    "ram.err.unverified": "설치된 펌웨어를 확인할 수 없어 RAM 실행이 취소되었습니다. 기록된 내용은 없습니다. 장치를 껐다가 다시 켜세요.",
     "ram.okTitle": "HXtra가 RAM에서 실행 중입니다.",
     "ram.okText": "HX Stomp에서 써 보세요. 껐다 켜면 설치된 펌웨어로 돌아갑니다. HXtra를 계속 쓰려면 아래처럼 파일을 설치하세요.",
     "ram.errTitle": "RAM 실행이 멈췄습니다.",
@@ -2479,6 +2497,8 @@ var LANGS = {
     "ram.s.start": "Запуск прошивки…",
     "ram.ask.dfu": "HX Stomp в режиме обновления. Нажмите Продолжить и выберите его в списке браузера (он может называться «LPC» или быть неизвестным устройством).",
     "ram.ask.loader": "Загрузчик RAM работает. Нажмите Продолжить и выберите его в списке браузера (неизвестное устройство, 1209:0001). В Windows: если список пуст, см. примечание о Zadig выше.",
+    "ram.unverifiedConfirm": "Загрузчику не удалось проверить установленную прошивку. Продолжайте только если на устройстве установлена оригинальная версия 3.80.0. Продолжить?",
+    "ram.err.unverified": "Не удалось проверить установленную прошивку, поэтому запуск из RAM отменён. Ничего не записано. Выключите и снова включите устройство.",
     "ram.okTitle": "HXtra работает из RAM.",
     "ram.okText": "Попробуйте её на HX Stomp. Выключите и включите его, чтобы вернуться к установленной прошивке. Чтобы оставить HXtra, установите файл, как описано ниже.",
     "ram.errTitle": "Запуск из RAM остановлен.",
@@ -2897,7 +2917,8 @@ var LANG_NAMES = {
           $("ramNext").onclick = function () { $("ramNext").hidden = true; $("ramNext").onclick = null; resolve(); };
         });
       },
-      unask: function () { $("ramNext").hidden = true; $("ramNext").onclick = null; }
+      unask: function () { $("ramNext").hidden = true; $("ramNext").onclick = null; },
+      confirmUnverified: function () { return window.confirm(t("ram.unverifiedConfirm")); }
     }).then(function () {
       ramBusy = false;
       ramShow("ok", ["ram.okTitle"], ["ram.okText"]);
@@ -2908,7 +2929,7 @@ var LANG_NAMES = {
       $("ramNext").hidden = true;
       ramLog("\n" + (e && e.message ? e.message : e) + "\n");
       var code = e && e.code;
-      var why = code === "busy" || code === "cancel" || code === "emmc" ? code : "other";
+      var why = code === "busy" || code === "cancel" || code === "emmc" || code === "unverified" ? code : "other";
       ramShow("bad", ["ram.errTitle"], ["ram.err." + why]);
       countEvent("ram-run/fail-" + why);
     });

@@ -39,8 +39,8 @@ class Dev {
 
 // ---- the running Stomp: transport + stream framing as in tools/hx_dfu_reboot.py's DryLink
 class Line6 extends Dev {
-  constructor(busy) {
-    super(0x0E41, 0x4246, { interfaceClass: 0xFF, endpoints: [
+  constructor(busy, xl) {
+    super(0x0E41, xl ? 0x4253 : 0x4246, { interfaceClass: 0xFF, endpoints: [
       { endpointNumber: 1, direction: "out", type: "bulk", packetSize: 512 },
       { endpointNumber: 1, direction: "in", type: "bulk", packetSize: 512 }] });
     this.configuration = this.cfg;            // a running Stomp is configured
@@ -140,7 +140,7 @@ class Loader extends Dev {
     const RB = RAMRUN.RB, out = new Uint8Array(n);
     if (s.request === RB.REQ_INFO) {
       out.set([82, 65, 77, 66]);
-      [1, scenario === "emmc-bad" ? 3 : 1, 204, 102, 0x10b, 0x1d5a000, 0, RB.HOOK_BASE, RB.STAGE_BASE, RB.DESC, RB.FREE_END, RB.CHUNK]
+      [1, scenario === "emmc-bad" || scenario === "emmc-ok" ? 3 : 1, 204, 102, 0x10b, 0x1d5a000, 0, RB.HOOK_BASE, RB.STAGE_BASE, RB.DESC, RB.FREE_END, RB.CHUNK]
         .forEach((v, i) => put32(out, 4 + 4 * i, v));
     } else if (s.request === RB.REQ_CRC) {
       const b = new Uint8Array(this.len);
@@ -186,14 +186,22 @@ const plan = {
 };
 const image = new Uint8Array(4112); for (let i = 0; i < image.length; i++) image[i] = (i * 7) & 255;
 
-const start = scenario === "from-dfu" ? new Dfu() : new Line6(scenario === "busy");
+const start = scenario === "from-dfu" ? new Dfu() : new Line6(scenario === "busy", scenario === "xl-full");
 usb.plug(start, false);
 
 RAMRUN.run({
   usb, plan, loader: image,
+  device: scenario === "xl-full" ? "HX_Stomp_XL" : "HX_Stomp",
   sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
   ask: (s) => { report.ask.push(s); return scenario === "dfu-allowed" ? new Promise(() => {}) : new Promise((r) => setTimeout(r, 100)); },
   unask: () => report.ask.push("unask"),
+  confirmUnverified:
+    scenario === "unverified-missing"
+      ? undefined
+      : () => {
+          report.unverified = true;
+          return scenario !== "unverified-cancel";
+        },
   stage: (s) => report.stages.push(s),
 }).then(() => {
   report.ok = true;
@@ -202,6 +210,8 @@ RAMRUN.run({
   console.log(JSON.stringify(report));
 }, (e) => {
   report.ok = false; report.code = e.code; report.message = e.message;
+    const loader = usb.devices.find((device) => device instanceof Loader);
+    if (loader) report.loaderOpen = loader.opened;
   delete report.dfu;
   console.log(JSON.stringify(report));
 });

@@ -18,6 +18,7 @@
 //   opts.ask(stage) -> Promise, resolved from a click (the browser may then ask
 //                 for the device: "dfu" | "loader"); opts.unask() when not needed
 //                 after all
+//   opts.confirmUnverified() -> boolean or Promise: consent when eMMC cannot be checked
 //   opts.stage(stage), opts.progress(fraction, label), opts.log(text)
 //   opts.sleep(ms) -> Promise (optional; tests make it instant)
 // It resolves when the firmware has started and rejects with an Error whose
@@ -37,7 +38,7 @@
   };
 
   // Error codes the page turns into words.
-  var CODES = ["busy", "line6", "dfu", "loader", "sdram", "crc", "emmc", "go", "gone", "cancel"];
+  var CODES = ["busy", "line6", "dfu", "loader", "sdram", "crc", "emmc", "unverified", "go", "gone", "cancel"];
 
   function fail(code, text) { var e = new Error(text); e.code = code; return e; }
   function hex(n, w) { return "0x" + (n >>> 0).toString(16).padStart(w || 8, "0"); }
@@ -334,6 +335,13 @@
       o.log("eMMC: the installed firmware matches stock 3.80.0 where the RAM run reads it\n");
     } else if (plan.checks.length) {
       o.log("eMMC: not checked (the RAM loader could not start it)\n");
+      if (!o.confirmUnverified || !(await o.confirmUnverified())) {
+        try { await dev.close(); } catch (e) { /* already disconnected */ }
+        throw fail(
+          "unverified",
+          "installed firmware was not verified; RAM run cancelled",
+        );
+      }
     }
 
     o.stage("upload");
@@ -395,9 +403,10 @@
     o.log = o.log || function () {};
     o.progress = o.progress || function () {};
     o.stage = o.stage || function () {};
-    var dev = (await present(o.usb, LOADER)) || (await present(o.usb, DFU)) || (await present(o.usb, LINE6));
+    var line6 = o.device === "HX_Stomp" ? [LINE6[0]] : o.device === "HX_Stomp_XL" ? [LINE6[1]] : LINE6;
+    var dev = (await present(o.usb, LOADER)) || (await present(o.usb, DFU)) || (await present(o.usb, line6));
     if (!dev) {
-      try { dev = await o.usb.requestDevice({ filters: LINE6.concat(DFU, LOADER) }); }
+      try { dev = await o.usb.requestDevice({ filters: line6.concat(DFU, LOADER) }); }
       catch (e) { throw fail("cancel", "no device chosen"); }
     }
     if (match(dev, LINE6)) {
