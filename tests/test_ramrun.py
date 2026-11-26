@@ -67,6 +67,7 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is no
 @needs_node
 @pytest.mark.parametrize("scenario,asks", [
     ("full", ["dfu", "loader"]),                          # the browser asks for each new device
+    ("xl-full", ["dfu", "loader"]),
     ("dfu-allowed", ["dfu", "unask", "loader", "unask"]),  # it doesn't: no click needed
     ("from-dfu", ["loader"]),                             # started with Page Right
 ])
@@ -76,6 +77,7 @@ def test_run(scenario, asks):
     assert r["ask"] == asks
     assert r["dfuOk"] and r["dfuBlocks"] == [2048, 2048, 16]    # wTransferSize from the DFU descriptor
     assert r["memOk"] and r["go"]
+    assert r["unverified"]
     assert r["stages"][-3:] == ["loader", "upload", "start"]
 
 
@@ -89,6 +91,38 @@ def test_busy():
 def test_emmc_not_stock():
     r = fake("emmc-bad")
     assert not r["ok"] and r["code"] == "emmc" and not r["go"] and r["loaderWrites"] == 0
+
+
+@needs_node
+@pytest.mark.parametrize("scenario", ["unverified-cancel", "unverified-missing"])
+def test_unverified_firmware_requires_confirmation(scenario):
+    r = fake(scenario)
+    assert not r["ok"] and r["code"] == "unverified"
+    assert r.get("unverified", False) == (scenario == "unverified-cancel")
+    assert not r["go"] and r["loaderWrites"] == 0
+    assert not r["loaderOpen"]
+
+
+@needs_node
+def test_verified_firmware_does_not_require_confirmation():
+    r = fake("emmc-ok")
+    assert r["ok"] and r["go"] and "unverified" not in r
+
+
+@needs_node
+@pytest.mark.parametrize("unit,product", [("HX_Stomp", 0x4246), ("HX_Stomp_XL", 0x4253)])
+def test_running_device_filter_matches_selected_unit(unit, product):
+    script = """
+const ram = require(process.argv[1]);
+const usb = { getDevices: async () => [], requestDevice: async ({filters}) => {
+  console.log(JSON.stringify(filters)); throw new Error('cancel');
+}};
+ram.run({usb, device: process.argv[2]}).catch(() => {});
+"""
+    result = subprocess.run(["node", "-e", script, str(ROOT / "web/ramrun.js"), unit],
+                            capture_output=True, text=True, check=True)
+    line6 = [entry for entry in json.loads(result.stdout) if entry["vendorId"] == 0x0E41]
+    assert line6 == [{"vendorId": 0x0E41, "productId": product}]
 
 
 class Timeout(Exception):

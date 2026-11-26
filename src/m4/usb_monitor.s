@@ -6,11 +6,7 @@
 .syntax unified
 .thumb
 .include "hxtra.inc"
-.equ ENGINE, 0x28d92a99             @ () -> the engine the UI's block calls take
-.equ SET_OUTPUT, 0x28e03c69         @ (engine, grid position, value): an Output block's destination, as when Path B's merge moves
-.equ PARAM_FIND, 0x28df35a1         @ (ctx, instance, name's Entry 3 string, &handle): an app parameter's handle, < 0 when it has none
-.equ PARAM_SEND, 0x28df35e9         @ (ctx, instance, handle, &{u8 type, u32 value}): an app parameter to the DSP
-.equ GET_VALUE, 0x28e1f845          @ (ID, &{type, value}): a Global Setting, < 0 when it has none
+.include "usb_monitor.inc"
 .equ TRIM_NAME, 4209                @ usbInGain0_1, USB Input Trim: a float the DSP's Level gains [99] and [105] take as it comes
 .equ TRIM_ID, 0x99                  @ its Global Setting, USB In 1/2 Trim (an I/O setting): GET_VALUE gives what the stock last sent
 .equ CODE_STEP, 1000                @ trim + CODE_STEP * (mode + 1): above any trim, as usb_monitor.asm splits it

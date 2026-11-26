@@ -7,3 +7,4 @@ Noise Gate's DSP cost rises by patch_sidechain.SC_COST a core.
 Nothing on the M4 side: the knob lives in the block."""
 FLAG = 'HX_GATE_SC'
 WEB = 'dsp'
+XL_PORTED = True

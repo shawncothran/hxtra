@@ -12,6 +12,7 @@ Before writing anything, read [conventions.md](conventions.md): the status tags,
 | [tools.md](tools.md) | every tool in `tools/` and the build switches | looking for a tool, or how to build an experiment |
 | [features/engine.md](features/engine.md) | a feature module: its settings, flag, inputs, and the hooks it shares (`chain_*`) or owns (`own_entry`, `own_call`); Entries 7 and 8 access | starting a new feature, or hooking a site |
 | [../resource-limits.md](../resource-limits.md) | which resources are nearly full and what changes cost | planning a feature |
+| [hx-stomp-xl-3.80.md](hx-stomp-xl-3.80.md) | HX Stomp XL 3.80.0 entry sizes, fixed eMMC partition map and preset DSP limit | checking XL firmware limits |
 | [ideas.md](ideas.md) | open ideas from the old notes | looking for what to do next |
 
 ## Formats

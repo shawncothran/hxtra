@@ -4,9 +4,10 @@ Most people never need this page: the [setup page](https://wisemandenny.github.i
 
 ## Requirements
 
-- An **HX Stomp**: HXtra is for the HX Stomp only, and `build.py` refuses any other firmware file.
-- Line 6's firmware 3.80.0 for the HX Stomp. The build checks the MD5 and refuses any other file:
+- An **HX Stomp or HX Stomp XL**. Other devices are not supported.
+- Line 6's firmware 3.80.0 for the selected device. The build checks the MD5 and refuses any other file:
   - `HX_Stomp_v3.80.0_0x103966115.hxf`, MD5 `a2cd8f4ae56f49415380270ebc484bf1`. Download it from [line6.com](https://line6.com/software/readeula.html?rid=12906); you need to sign in with a free Line 6 (Helix) account to get the download.
+  - `HX_Stomp_XL_v3.80.0_0x103966115.hxf`, MD5 `329e3a26d60d3de1988b6785fa833ee1`. Download it from [line6.com](https://line6.com/software/).
 - Python 3.10 or newer with `numpy`: `pip install numpy`. To run a build from RAM from the command line, also `pyusb` and `dfu-util`.
 - For every feature but the boot screen and real block names, clang: their M4 code is assembled with it at build time. On a Mac, Apple's Command Line Tools (`xcode-select --install`); on Linux or WSL, `apt install clang` (clang 18 gives the same bytes as Apple's). `tools/m4asm.py` takes `HX_CLANG` (a path, or a name on `PATH`) first, then the Command Line Tools' clang, then `clang` on `PATH`. For the boot screen, macOS converts pictures (`sips`) and renders emoji (`swift`); elsewhere give a 320x240 PNG and `--splash-glyph` pictures.
 - **Line 6 Updater** to install, and **HX Edit** to import captures.
@@ -26,6 +27,8 @@ This writes `build/HX_Stomp_v3.80.0_HXtra.hxf`. It takes about 2 minutes, most o
 3. On the HX Stomp, adds the HXtra features that are turned on to the main application (`tools/patch_menu.py`, from `tools/features/`).
 4. Adds the kernel to the DSP's boot code (`patch_amp.py patch`).
 5. Recomputes and verifies every checksum: the container MD5, the archive Fletcher-32 and CRC-32, and the image CRCs.
+
+For XL, supply its stock file instead. NAM A2 Lite uses the same slot counts and DSP memory budget as on the HX Stomp. Only features marked `XL_PORTED` are supported on XL.
 
 The build is deterministic. The default HX Stomp build (no switches) has MD5 `a070c1ddaf5d656d195f16d3e784a540`, pinned in `tests/test_firmware.py`.
 
@@ -63,8 +66,6 @@ HX_TUNER=1 HX_BPM=1 HX_DSP_METER=1 HX_BREATHING_LINE=1 HX_LONG_PRESS=1 HX_MORE_S
 
 ## Boot screen
 
-HX Stomp only.
-
 ```sh
 python3 build.py path/to/HX_Stomp_v3.80.0_0x103966115.hxf --splash my_picture.jpg --splash-text "HXS OS v0.1"
 ```
@@ -86,7 +87,37 @@ The setup page, **[wisemandenny.github.io/hxtra](https://wisemandenny.github.io/
 
 The browser has no clang to assemble the features' M4 code, so each release brings that code made in advance: `tools/m4cache.py` runs the page's features on the stock file and keeps what each module assembled to, in `m4cache.json`, with the MD5 of the build, and `tools/m4asm.py` reads it when `HX_M4_CACHE` names it. The page compares its build with that MD5 and says **Verified**. The page runs `build.py`'s other steps for them too: the Metronome block (`tools/patch_click.py`), the FX Loop gate (`tools/patch_gate.py`), and the GR meter's knobs and DSP code (`tools/patch_comp.py`). `m4cache.json` also holds the DSP memory each NAM slot count leaves and each DSP feature's cost (`"dsp"`), and the MD5 of every combination that fits. A copy of the page served from a checkout (`python3 -m http.server`, then `/web/`) has no `m4cache.json` and builds without features, unless you make one: `python3 tools/m4cache.py path/to/HX_Stomp_v3.80.0_0x103966115.hxf -o m4cache.json`.
 
+Select HX Stomp XL on the setup page to build its NAM and XL-ported features. XL requires its own cache; generate it for a local page with `python3 tools/m4cache.py path/to/HX_Stomp_XL_v3.80.0_0x103966115.hxf --unit HX_Stomp_XL -o m4cache-xl.json`. New releases require `--xl-stock` with the stock XL file so both unit caches are published. Older releases without the XL cache cannot build XL firmware in the browser.
+
 The page is published only for a release, never from `main`, so it always matches one; see [Releases](../CONTRIBUTING.md#releases).
+
+## Developer USB tools
+
+Optional developer builds can receive control events from a computer and stream the HX Stomp's LCD over USB. These tools use HX Edit's editor service, so **close HX Edit before running them**. They are not included in the browser builder or public release builds.
+
+Build with either or both flags, then run the resulting firmware on the unit:
+
+```sh
+HX_USB_INPUT=1 HX_SCREEN_MIRROR=1 python3 build.py path/to/HX_Stomp_v3.80.0_0x103966115.hxf
+```
+
+Use the USB input tool to press or hold a footswitch, press buttons together, turn a knob, or touch a footswitch sensor:
+
+```sh
+python3 tools/hx_input.py press fs2
+python3 tools/hx_input.py press view+action
+python3 tools/hx_input.py hold fs1 --seconds 1.5
+python3 tools/hx_input.py turn knob3 -4
+```
+
+Capture a frame or open the live viewer and record a take with its control events:
+
+```sh
+python3 tools/hx_mirror.py shot build/screen.png
+python3 tools/hx_mirror.py view --record demo.mov
+```
+
+The live viewer and `.mov` recording are macOS-only; recordings with a bare filename go in `build/recordings/`. See `python3 tools/hx_input.py --help` and `python3 tools/hx_mirror.py --help` for the other controls and capture commands.
 
 ## Try it first, from RAM
 

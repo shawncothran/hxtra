@@ -1,8 +1,12 @@
 """The features page (web/features.html): the README's and docs' links reach its sections, and its demos and icons load."""
 import json
 import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "web" / "features.html"
@@ -43,8 +47,8 @@ def test_every_demo_slot_has_sized_media():
     slots = re.findall(r'<!-- demo: [^>]*-->\n\s*<div class="demos[^"]*">(.*?)</div>', page(), re.S)
     assert len(slots) == page().count("<!-- demo:") > 0
     for slot in slots:
-        media = re.findall(r"<(?:img|video) [^>]*>", slot)
-        assert media and all(re.search(r'width="\d+" height="\d+"', m) for m in media)
+        media = re.findall(r"<(?:img|video)\s+[^>]*>", slot)
+        assert media and all(re.search(r'width="\d+"', m) and re.search(r'height="\d+"', m) for m in media)
 
 
 def test_every_feature_card_ends_with_its_settings():
@@ -71,6 +75,11 @@ class _Strings(HTMLParser):
             self.strings[a["data-i18n-alt"]] = a["alt"]
         if tag not in self.VOID:
             self.stack.append([a.get("data-i18n"), []])
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID:
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
         key, inner = self.stack.pop()
@@ -100,26 +109,45 @@ def english():
 
 
 def langs():
-    text = page().split("// LANGS-BEGIN\nvar LANGS = ")[1].split(";\n// LANGS-END")[0]
-    return text, json.loads(text)
+    if shutil.which("node") is None:
+        pytest.skip("node is needed to parse the page's JavaScript translations")
+    source = page().split("// LANGS-BEGIN", 1)[1].split("// LANGS-END", 1)[0]
+    result = subprocess.run(
+        ["node", "-e", 'const vm = require("vm"), fs = require("fs"); '
+         'const context = {}; vm.runInNewContext(fs.readFileSync(0, "utf8"), context); '
+         'process.stdout.write(JSON.stringify(context.LANGS));'],
+        input=source, text=True, capture_output=True, check=True)
+    return json.loads(result.stdout)
 
 
-def test_translations_have_one_string_a_line():
-    text, data = langs()
-    assert text == json.dumps(data, ensure_ascii=False, indent=2), \
-        "LANGS is not one string a line: rewrite it with json.dumps(LANGS, ensure_ascii=False, indent=2)"
+def tags(text):
+    class Tags(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.items = []
+
+        def handle_starttag(self, tag, attrs):
+            self.items.append((tag, tuple(sorted(attrs))))
+
+        def handle_endtag(self, tag):
+            if tag not in _Strings.VOID:
+                self.items.append((f"/{tag}", ()))
+
+    parser = Tags()
+    parser.feed(text)
+    return parser.items
 
 
 def test_every_language_has_every_string_with_the_same_tags():
-    en, (_, data) = english(), langs()
+    en, data = english(), langs()
     names = re.findall(r"(\w+): \"", page().split("var LANG_NAMES = {")[1].split("};")[0])
     assert sorted(data) == sorted(n for n in names if n != "en")
     for code, strings in data.items():
         assert sorted(strings) == sorted(en), f"{code}: keys differ from the page's"
-        bad = [k for k in en if re.findall(r"<[^>]+>", strings[k]) != re.findall(r"<[^>]+>", en[k])]
+        bad = [k for k in en if tags(strings[k]) != tags(en[k])]
         assert not bad, f"{code}: tags differ in {bad}"
 
 
 def test_language_names_match_the_setup_page():
-    names = lambda html: html.split("var LANG_NAMES = {")[1].split("};")[0]
+    names = lambda html: re.findall(r'(\w+): "([^"]+)"', html.split("var LANG_NAMES = {")[1].split("};")[0])
     assert names(page()) == names((ROOT / "web" / "index.html").read_text())

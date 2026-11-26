@@ -45,7 +45,7 @@ SDRAM use: the application keeps below 0x28E50000. The hook, the overlay and the
 
 ## The eMMC
 
-The overlay holds only the sectors that differ from stock, so every other sector is read from the card. The Stomp must therefore have stock 3.80.0 installed, or this same build, which matches stock wherever the overlay doesn't cover. If the loader can start the eMMC, the run first compares the CRC of every sector it will read with stock and stops if one differs. If the loader cannot start the eMMC, which has happened on the unit, the check is skipped and the log says so. A run against another installed version would most likely hang, and turning the Stomp off and on recovers.
+The overlay holds only the sectors that differ from stock, so every other sector is read from the card. The Stomp must therefore have stock 3.80.0 installed, or this same build, which matches stock wherever the overlay doesn't cover. If the loader can start the eMMC, the run first compares the CRC of every sector it will read with stock and stops if one differs. If the loader cannot start the eMMC, which has happened on the unit, the check is skipped and the log says so. The browser asks for confirmation before proceeding; confirm only when you have verified that the required firmware is installed. A run against another installed version would most likely hang, and turning the Stomp off and on recovers.
 
 ## Rebuilding the loader
 

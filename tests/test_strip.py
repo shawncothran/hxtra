@@ -109,6 +109,22 @@ def test_strip_inc_lists_each_category_and_slot():
     assert '    .hword 54, 155, 258, 363, 464, 574\n' in inc
 
 
+def test_strip_uses_xl_image_functions(m4emu):
+    set_image, set_pos = 0x28e2ade0, 0x28e2ae50
+    cats = features(8)
+    inc = pm.strip_inc(cats, CENTRES, set_image | 1, set_pos | 1)
+    code, sym = m4emu.assemble('src/m4/strip.s', [], {}, inc={'strip.inc': inc})
+    m = m4emu.M4(code, CAVE, log_regs=('r0', 'r1', 'r2'))
+    m.stub(set_image)
+    m.stub(set_pos)
+    for current in range(7):
+        m.u8(VIEW + 5, current)
+        m.log.clear()
+        m.call(CAVE + sym['strip_update'], VIEW)
+    assert len(m.calls(set_image)) == len(m.calls(set_pos)) == 6
+    assert [image for _, image, _ in m.calls(set_image)] == [cats[index][1 if index == 6 else 0] for index in range(1, 7)]
+
+
 @pytest.mark.firmware
 def test_built_strip_scrolls_with_new_lit_and_dim_icons(m4emu):
     """BPM and breathing line: the four stock loops call one strip_update, a carousel over 8 categories; each section icon gets a

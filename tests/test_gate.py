@@ -22,8 +22,10 @@ import patch_amp as pa
 import patch_click
 import patch_comp as pc
 import patch_gate as pg
+import patch_menu as pm
 import sasm
 import ssim
+import setting_ids
 from features import fx_gate
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -349,6 +351,36 @@ def test_entry0_counts_and_costs(gated):
     for name in pg.MODELS:
         m = pa.find_model(info, name)
         assert ui_counts(new, m['words'][2]) == (len(m['params']) + 3,) * 3
+
+
+@pytest.mark.firmware
+def test_xl_gate_uses_shared_dsp_and_updates_its_model_tables():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    stomp = stock_l6ia()
+    xl = pa.load_l6ia_from_any(path)[0]
+    outputs = [pg.patch_gate(pg.patch_dsp(data, **QUIET), **QUIET) for data in (stomp, xl)]
+    for entry in (2, 3, 4):
+        assert pa.get_entry_swapped(outputs[0], entry) == pa.get_entry_swapped(outputs[1], entry)
+    old, new = table1(xl), table1(outputs[1])
+    info = entries(xl)[0]
+    for name in pg.MODELS:
+        model = pa.find_model(info, name)
+        index = model['words'][2]
+        assert new[index] == (old[index][0], old[index][1] + pg.GATE_COST * (2 if 'Stereo' in name else 1))
+        assert ui_counts(outputs[1], index) == (len(model['params']) + 3,) * 3
+
+
+@pytest.mark.firmware
+def test_xl_menu_gate_allows_fx_loop_noise_gate():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda index: pa.get_entry_swapped(archive, index)
+    _, enabled = pm.menu_entries(load, features.load(), {'HX_FX_GATE': '1'}, setting_ids.by_name(), layout=pm.XL_MENU)
+    assert fx_gate in enabled
 
 
 @pytest.mark.firmware

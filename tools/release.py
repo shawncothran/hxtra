@@ -2,10 +2,11 @@
 """release.py - publish an HXtra release: a GitHub release of the commit you're on, with the web page's M4 code
 (tools/m4cache.py) attached, which the Pages workflow (.github/workflows/pages.yml) then publishes with the page.
 
-usage: release.py <HX_Stomp_v3.80.0_0x103966115.hxf> <tag> [--notes "text"] [--dry-run]
+usage: release.py <HX_Stomp_v3.80.0_0x103966115.hxf> <tag> --xl-stock HX_Stomp_XL_v3.80.0_0x103966115.hxf
+                   [--notes "text"] [--dry-run]
 
 Run it on a Mac (the code is assembled with clang) from a clean checkout of a pushed commit, usually main. It refuses a tag
-the boot text doesn't show when that text is a version (tools/features/splash.py TEXT). --dry-run makes build/m4cache.json
+the boot text doesn't show when that text is a version (tools/features/splash.py TEXT). --dry-run makes both caches
 and stops before the release.
 """
 import argparse
@@ -43,6 +44,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('stock', help='the stock HX Stomp 3.80.0 .hxf')
     ap.add_argument('tag', help='the release, e.g. v1.0.0')
+    ap.add_argument('--xl-stock', required=True, help='the stock HX Stomp XL 3.80.0 .hxf')
     ap.add_argument('--notes', help='the release notes (default: generated from the pull requests since the last one)')
     ap.add_argument('--dry-run', action='store_true')
     a = ap.parse_args()
@@ -60,9 +62,15 @@ def main():
     with open(out, 'w') as f:
         json.dump(cache, f, separators=(',', ':'), sort_keys=True)
     print(f'[+] Wrote {out}: {len(cache["modules"])} modules for {", ".join(cache["features"])}')
+    xl_out = os.path.join(ROOT, 'build', 'm4cache-xl.json')
+    xl_cache = m4cache.make(a.xl_stock, a.tag, m4cache.XL_UNIT)
+    with open(xl_out, 'w') as f:
+        json.dump(xl_cache, f, separators=(',', ':'), sort_keys=True)
+    print(f'[+] Wrote {xl_out}: {len(xl_cache["modules"])} modules for {", ".join(xl_cache["features"])}')
+    assets = [out, xl_out]
     if a.dry_run:
         return
-    cmd = ['gh', 'release', 'create', a.tag, out, '-R', repo(git('remote', 'get-url', 'origin')), '--target', sha,
+    cmd = ['gh', 'release', 'create', a.tag, *assets, '-R', repo(git('remote', 'get-url', 'origin')), '--target', sha,
            '--title', f'HXtra {a.tag}', *(['--notes', a.notes] if a.notes else ['--generate-notes'])]
     subprocess.run(cmd, cwd=ROOT, check=True)
     print(f'[+] Released {a.tag}; the Pages workflow publishes the page for it')

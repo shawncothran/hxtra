@@ -1,16 +1,18 @@
 """tools/features/metronome.py and src/m4/metronome.s: the Metronome block's stand-ins in unicorn, and its block category and hooks
 in the firmware they build."""
+import os
 import re
 import struct
 
 import pytest
 
 import features
+import patch_amp as pa
 import patch_click
 import patch_menu as pm
 import setting_ids
-from features import metronome as mt
-from firmware import branch_target, built
+from features import metronome as mt, splash
+from firmware import branch_target, built, reader
 
 MODS = features.load()
 IDS = setting_ids.by_name()
@@ -19,10 +21,11 @@ PITCH, WAH, VOLUME_PAN, SEND_RETURN = 8, 0xa, 0x10, 0x11
 OTHER_IDS = (patch_click.PRESET_ID + 0x100, 0x1b5 + 0x10000, 509, 0, -1)
 
 
-def add_category(m4emu, preset_id, category):
+def add_category(m4emu, preset_id, category, profile=mt.STOMP, layout=pm.STOMP_MENU):
     """metronome_add_cat in unicorn, called as the bl at the add switch is: the caller's block info where the site's load says (its
     category at +0xc); the r3 it returns."""
-    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS)
+    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS,
+                               inc={'metronome.inc': mt.metronome_inc(profile)}, layout=layout)
     m = m4emu.M4(code, CODE)
     info = bytearray(0x34)
     struct.pack_into('<BI', info, 0, 1, preset_id & 0xffffffff)
@@ -35,6 +38,39 @@ def add_category(m4emu, preset_id, category):
 def test_the_metronome_added_falls_outside_the_add_switch(m4emu):
     assert patch_click.BROWSER == VOLUME_PAN
     assert not PITCH <= add_category(m4emu, patch_click.PRESET_ID, VOLUME_PAN) <= SEND_RETURN, 'the switch\'s default: no FS5'
+
+
+def test_xl_add_switch_keeps_other_blocks_unchanged(m4emu):
+    assert add_category(m4emu, patch_click.PRESET_ID, VOLUME_PAN, mt.XL, pm.XL_MENU) == patch_click.CATEGORY
+    assert add_category(m4emu, 509, VOLUME_PAN, mt.XL, pm.XL_MENU) == VOLUME_PAN
+
+
+@pytest.mark.firmware
+def test_xl_metronome_ui_hooks_match_stock():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda index: pa.get_entry_swapped(archive, index)
+    stock = reader(load(0))
+    assert stock(mt.XL.add_switch, 6) == mt.ADD_SWITCH_STOCK + bytes.fromhex('083b')
+    assert branch_target(mt.XL.assign, stock(mt.XL.assign, 4)) == mt.XL.block_category
+    entries, enabled = pm.menu_entries(load, [splash, mt], {'HX_CLICK': '1'}, IDS, layout=pm.XL_MENU)
+    assert mt in enabled
+    read = reader(entries[0])
+    assert branch_target(mt.XL.add_switch, read(mt.XL.add_switch, 4)) >= pm.XL_MENU.base
+    assert read(mt.XL.categories + 0x2c * mt.METRONOME, len(mt.NAME)).startswith(mt.NAME)
+
+
+@pytest.mark.firmware
+def test_xl_metronome_uses_the_shared_dsp_model():
+    stomp_path, xl_path = os.environ.get('HX_STOMP_HXF'), os.environ.get('HX_STOMP_XL_HXF')
+    if not stomp_path or not xl_path:
+        pytest.skip('set HX_STOMP_HXF and HX_STOMP_XL_HXF')
+    archives = [pa.load_l6ia_from_any(path)[0] for path in (stomp_path, xl_path)]
+    outputs = [patch_click.add_click(archive, log=lambda *_: None)[0] for archive in archives]
+    for index in (2, 3, 4):
+        assert pa.get_entry_swapped(outputs[0], index) == pa.get_entry_swapped(outputs[1], index)
 
 
 @pytest.mark.parametrize('category', (PITCH, WAH, VOLUME_PAN, SEND_RETURN, 5))
@@ -56,7 +92,7 @@ VOLUME, UNKNOWN = 0x0e, 0x19
 
 def assign_category(m4emu, preset_id, result=0, category=UNKNOWN):
     """metronome_assign_cat in unicorn, the block category getter stubbed to store category and return result: (r0, the byte)."""
-    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS)
+    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS, inc={'metronome.inc': mt.metronome_inc()})
     m = m4emu.M4(code, CODE)
     out = m4emu.STACK_TOP - 0x100
     m.stub(mt.BLOCK_CATEGORY, lambda m: (m.u8(m.reg('r2'), category), m.reg('r0', result)))
@@ -82,7 +118,7 @@ STOCK_LED = 0x28e70000
 
 def led_colour(m4emu, category, on=1):
     """metronome_led_colour in unicorn, r12 at a stub of the stock lookup: the category and on/off it passes on."""
-    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS)
+    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS, inc={'metronome.inc': mt.metronome_inc()})
     m = m4emu.M4(code, CODE)
     m.stub(STOCK_LED)
     m.reg('r12', STOCK_LED | 1)
@@ -110,7 +146,7 @@ def test_its_constants_are_the_click_tools():
 
 @pytest.mark.firmware
 def test_build_sends_the_add_switchs_category_load_to_the_module(m4emu):
-    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS)
+    code, sym = m4emu.assemble('src/m4/metronome.s', MODS, IDS, inc={'metronome.inc': mt.metronome_inc()})
     read, on = built({'HX_CLICK': '1'})
     assert 'metronome' in on
     module = branch_target(mt.ADD_SWITCH, read(mt.ADD_SWITCH, 4)) - sym['metronome_add_cat']

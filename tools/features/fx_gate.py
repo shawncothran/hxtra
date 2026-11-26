@@ -6,3 +6,4 @@ The gate wraps the blocks' return reader (src/sharc/fx_gate.asm), and each block
 Nothing on the M4 side: the knobs live in the blocks."""
 FLAG = 'HX_FX_GATE'
 WEB = 'dsp'
+XL_PORTED = True
