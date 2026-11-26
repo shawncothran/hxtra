@@ -1,6 +1,7 @@
 """tools/features/usb_input.py, src/m4/usb_input.s, tools/hx_input.py: the command's registration and its queueing of the host's
 UI events run in tests/m4emu.py against the key queue and the reply sender modelled, the host's events for each control, and
 the build on the stock firmware."""
+import os
 import struct
 
 import msgpack
@@ -9,8 +10,12 @@ import pytest
 import features
 import hx_ctl
 import hx_input as hi
+import patch_amp as pa
+import patch_menu as pm
+import setting_ids
 import usb_commands
 from features import usb_input as ui
+from features import screen_mirror as sm
 from firmware import branch_target, menu_entry0, reader, stock_e0
 from hx_mirror import STOMP
 
@@ -27,17 +32,19 @@ FS2_UP = bytes([1, 13, 0, 0, 2, 0, 0, 0])
 class Unit:
     """usb_input.s in the M4, with the key queue (its free bytes, the events put) and the reply sender modelled."""
 
-    def __init__(self, m4emu, text, sym):
+    def __init__(self, m4emu, text, sym, profile=ui.STOMP):
         self.sym, self.put, self.sent, self.free, self.slept = sym, [], [], [8000], 0
+        self.profile = profile
         self.m = m = m4emu.M4(text, MOD)
-        m.stub(REGISTER, lambda m: m.reg('r0', 0))
-        m.stub(PUT, lambda m: self.put.append(m.read(m.reg('r0'), 8)))
-        m.stub(ROOM, self.room)
-        m.stub(SLEEP, self.sleep)
-        m.stub(SEND, self.send)
+        register, _, send, put, room, sleep = profile.called
+        m.stub(register, lambda m: m.reg('r0', 0))
+        m.stub(put, lambda m: self.put.append(m.read(m.reg('r0'), 8)))
+        m.stub(room, self.room)
+        m.stub(sleep, self.sleep)
+        m.stub(send, self.send)
 
     def room(self, m):
-        assert m.reg('r0') == QUEUE
+        assert m.reg('r0') == self.profile.queue
         m.reg('r0', self.free.pop(0) if len(self.free) > 1 else self.free[0])
 
     def sleep(self, m):
@@ -62,7 +69,7 @@ class Unit:
 @pytest.fixture
 def unit(m4emu):
     if 'input' not in _code:
-        _code['input'] = m4emu.assemble('src/m4/usb_input.s', features.load(), {}, inc={'usb.inc': usb_commands.inc('usb_input')})
+        _code['input'] = m4emu.assemble('src/m4/usb_input.s', features.load(), {}, inc={'usb.inc': ui.input_inc(ui.STOMP)})
     return Unit(m4emu, *_code['input'])
 
 
@@ -79,6 +86,76 @@ def test_an_event_is_put_on_the_key_queue_and_answered_with_nil(unit):
     assert unit.request(FS2_DOWN, seq=0x1234) == 0
     assert unit.put == [FS2_DOWN]
     assert unit.sent == [(STREAM, 0x1234, 0, b'\xc0')], 'status 0, result nil'
+
+
+def test_xl_raw_input_registers_and_queues_events(m4emu):
+    text, symbols = m4emu.assemble('src/m4/usb_input.s', features.load(), {},
+                                   inc={'usb.inc': ui.input_inc(ui.XL)}, layout=pm.XL_MENU)
+    unit = Unit(m4emu, text, symbols, ui.XL)
+    unit.m.call(MOD + symbols['ui_register'])
+    (cmd, desc, _, _), = unit.m.calls(ui.XL.called[0])
+    assert cmd == ui.CMD
+    assert struct.unpack('<3I', unit.m.read(desc, 12)) == (MOD + symbols['ui_cmd'] | 1, ui.XL.called[1] | 1, 0)
+    assert unit.request(FS2_DOWN, seq=0x1234) == 0
+    assert unit.put == [FS2_DOWN] and unit.sent == [(STREAM, 0x1234, 0, b'\xc0')]
+
+
+@pytest.mark.firmware
+def test_xl_input_hooks_and_commands_match_stock():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e0 = pa.get_entry_swapped(archive, 0)
+    read = reader(e0)
+    for address, (_, stock, _) in zip(ui.XL.called, ui.CALLED):
+        assert read(address, len(bytes.fromhex(stock))) == bytes.fromhex(stock)
+    assert int.from_bytes(read(ui.XL.queue_literal, 4), 'little') == ui.XL.queue
+    assert read(ui.XL.register_all_call, 4) == pm.bl(ui.XL.register_all_call, ui.XL.register_all)
+    commands = usb_commands.registered(read, branch_target, ui.XL.called[0])
+    assert len(commands) == len(set(commands)) == 110 and ui.CMD not in commands
+    patch = pm.Patch(e0, [], {}, layout=pm.XL_MENU)
+    ui.apply(patch)
+    patch.finish_chains()
+    result = reader(patch.entry0())
+    assert branch_target(ui.XL.register_all_call, result(ui.XL.register_all_call, 4)) > ui.XL.register_all_call
+
+
+@pytest.mark.firmware
+def test_xl_menu_builds_usb_input_and_screen_mirror_together():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    entries, enabled = pm.menu_entries(lambda n: pa.get_entry_swapped(archive, n), features.load(),
+                                       {ui.FLAG: '1', sm.FLAG: '1'}, setting_ids.by_name(), layout=pm.XL_MENU)
+    names = {features.name(feature) for feature in enabled}
+    assert {'usb_input', 'screen_mirror'} <= names
+    read = reader(entries[0])
+    assert branch_target(ui.XL.register_all_call, read(ui.XL.register_all_call, 4)) != ui.XL.register_all
+    assert branch_target(sm.XL.post, read(sm.XL.post, 4)) != sm.XL.post
+
+
+@pytest.mark.firmware
+def test_xl_diagnostic_handlers_share_editor_registration(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e0 = pa.get_entry_swapped(archive, 0)
+    patch = pm.Patch(e0, [sm, ui], {}, layout=pm.XL_MENU)
+    for feature in (sm, ui):
+        patch.owner = features.name(feature)
+        feature.apply(patch)
+    patch.finish_chains()
+    e0 = patch.entry0()
+    _, off, size, base, _ = pa._parse_e0_segments(e0)[6]
+    m = m4emu.M4(e0[off:off + size], base)
+    m.stub(ui.XL.register_all)
+    m.stub(ui.XL.called[0])
+    read = reader(e0)
+    m.call(branch_target(ui.XL.register_all_call, read(ui.XL.register_all_call, 4)))
+    assert [call[0] for call in m.calls(ui.XL.called[0])] == [sm.CMD, ui.CMD]
 
 
 def test_events_are_put_in_order_whatever_head_their_string_has(unit):

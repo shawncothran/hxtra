@@ -2,12 +2,14 @@
 and switch icon, lit for the current preset and dimmed for a coloured other one, the colour read from the end of another preset's
 file, the key a save writes and a load finds, the Home paint's recolouring after a change), the stock sites they take, and the
 firmware it builds (Displays' second page, the virtual settings, the hooks)."""
+import os
 import struct
 
 import pytest
 
 import features
 import image_store
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
 from features import more_snapshots as ms, preset_color as pc, tap_color as tc
@@ -314,6 +316,177 @@ def test_the_preset_icons_are_red_and_dark_and_each_colour_has_both(m4emu):
     assert (names[RED_ICON], names[DARK_ICON]) == (b'Icon_SwitchRed', b'Icon_SwitchDark')
     assert [names[i] for i in ICONS] == [f'Icon_Switch{c}'.encode() for c in COLOURS]
     assert [names[i] for i in DIM_ICONS] == [f'Icon_Switch{c}Off'.encode() for c in COLOURS]
+
+
+@pytest.mark.firmware
+def test_xl_preset_color_sites_and_tiles_match_the_3_80_stock_image(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e0 = pa.get_entry_swapped(archive, 0)
+    segs = pa._parse_e0_segments(e0)
+
+    def read(address, size):
+        offset = pa._e0_vaddr_to_foff(segs, address, size)
+        return bytes(e0[offset:offset + size])
+
+    assert read(0x28dd8c02, 4) == pm.bl(0x28dd8c02, 0x28dbb308)
+    assert read(0x28dcb93a, 4) == pm.bl(0x28dcb93a, 0x28e2ade0)
+    assert read(0x28dcba24, 4) == pm.bl(0x28dcba24, 0x28e2ade0)
+    assert read(0x28dd8bf2, 4) == bytes.fromhex('7ff42eaf')
+    assert read(0x28dcb7ca, 4) == pm.bl(0x28dcb7ca, 0x28e2ade0)
+    assert read(0x28dcb90c, 4) == pm.bl(0x28dcb90c, 0x28e2ade0)
+
+    e7, e8 = pa.get_entry_swapped(archive, 7), pa.get_entry_swapped(archive, 8)
+    names = image_store.names(e7)
+    assert [names[i] for i in (0x196, 0x221, 0x1ae, 0x152)] == [
+        b'Play_PresetSel', b'Play_PresetHXSelMedium', b'Play_Preset', b'Play_PresetHXMedium']
+    items, records, selected, dimmed = pc.xl_tile_records(e7, e8)
+    assert len(items) == len(records) == 38
+    assert selected[:1] == (0x196,) and selected[10:11] == (0x221,)
+    assert dimmed == tuple(range(577 + 18, 577 + 38))
+    new_e7, new_e8 = image_store.append_records(e7, records), image_store.append_items(e8, items)
+    assert image_store.names(new_e7) == names
+    assert image_store.image_at(new_e7, new_e8, selected[-1]).width == image_store.image_at(e7, e8, 0x221).width
+    assert image_store.image_at(new_e7, new_e8, dimmed[-1]).height == image_store.image_at(e7, e8, 0x152).height
+    _, main_symbols = m4emu.assemble(pc.MODULE, MODS, IDS)
+    _, xl_symbols = m4emu.assemble('src/m4/preset_color_xl.s', MODS, IDS, inc={
+        'xl_preset_color.inc': pc.xl_include(MOD + main_symbols['preset_lit'], selected, dimmed)})
+    assert {'preset_ring_xl', 'preset_icon_xl', 'preset_ring_dim_xl', 'preset_icon_dim_xl', 'preset_paint_xl'} <= set(xl_symbols)
+
+
+@pytest.mark.firmware
+def test_xl_preset_color_patches_hooks_and_appends_tile_entries():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    patch = pm.Patch(load(0), MODS, IDS, load=load, layout=pm.XL_MENU)
+    patch.owner = 'preset_color'
+    pc.apply(patch)
+    patch.finish_chains()
+    output = patch.output()
+    xl_module = patch.modules['src/m4/preset_color_xl.s']
+    assert branch_target(pc.XL['ring'][0], patch.read(pc.XL['ring'][0], 4)) == xl_module['preset_ring_xl']
+    assert branch_target(pc.XL['icons'][0], patch.read(pc.XL['icons'][0], 4)) == xl_module['preset_icon_xl']
+    assert branch_target(pc.XL['dim_icons'][0], patch.read(pc.XL['dim_icons'][0], 4)) == xl_module['preset_icon_dim_xl']
+    assert patch.u32(pc.XL['paint_pointer'][0]) != pc.XL['paint_pointer'][1]
+    assert {0, 7, 8} == set(output)
+
+
+@pytest.mark.firmware
+def test_xl_preset_color_registers_through_the_feature_build_gate():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    output, on = pm.menu_entries(load, MODS, {'HX_PRESET_COLOR': '1'}, IDS, layout=pm.XL_MENU)
+    assert 'preset_color' in [features.name(module) for module in on]
+    assert {0, 7, 8} <= set(output)
+
+
+@pytest.mark.firmware
+def test_xl_current_preset_color_selects_ring_and_play_tile_palette(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e7, e8 = pa.get_entry_swapped(archive, 7), pa.get_entry_swapped(archive, 8)
+    _, _, selected, dimmed = pc.xl_tile_records(e7, e8)
+    code, symbols = m4emu.assemble('src/m4/preset_color_xl.s', MODS, IDS, inc={
+        'xl_preset_color.inc': pc.xl_include(0x28e50001, selected, dimmed)})
+    machine = m4emu.M4(code, MOD)
+    colour = [0]
+    rings, images = [], []
+    machine.stub(0x28e50000, lambda m: m.reg('r0', colour[0]))
+    machine.stub(0x28dbb308, lambda m: rings.append((m.reg('r0'), m.reg('r1'))))
+    machine.stub(0x28e2ade0, lambda m: images.append((m.reg('r0'), m.reg('r1'))))
+    widget = 0x28120000
+    for index, led in enumerate(LEDS):
+        colour[0] = index
+        machine.call(MOD + symbols['preset_ring_xl'], 3, LEDS[0])
+        assert rings[-1] == (3, led)
+        for style, source in enumerate(pc.XL_SELECTED_TILES):
+            machine.call(MOD + symbols['preset_icon_xl'], widget, source)
+            assert images[-1] == (widget, selected[style * 10 + index])
+
+
+@pytest.mark.firmware
+def test_xl_other_preset_color_selects_dim_play_tile_palette(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e7, e8 = pa.get_entry_swapped(archive, 7), pa.get_entry_swapped(archive, 8)
+    _, _, selected, dimmed = pc.xl_tile_records(e7, e8)
+    code, symbols = m4emu.assemble('src/m4/preset_color_xl.s', MODS, IDS, inc={
+        'xl_preset_color.inc': pc.xl_include(0x28e50001, selected, dimmed)})
+    machine = m4emu.M4(code, MOD)
+    color = [1]
+    images = []
+    machine.stub(0x28e50000, lambda m: m.reg('r0', color[0]))
+    machine.stub(0x28df6288, lambda m: m.write(m.reg('r0'), bytes(8)))
+    machine.stub(0x28df6670, lambda m: m.write(m.reg('r1'), bytes(40)))
+    machine.stub(0x28df57ec, lambda m: m.reg('r0', 0))
+    machine.stub(0x28df60a4, lambda m: m.reg('r0', 0))
+    machine.stub(0x28dad344, lambda m: m.reg('r0', 70))
+    machine.stub(0x28dad230, lambda m: m.reg('r0', 1))
+    machine.stub(0x28dad1c0, lambda m: (m.write(m.reg('r1'), key(color[0])), m.reg('r0', 8)))
+    machine.stub(0x28df5e18)
+    machine.stub(0x28e2ade0, lambda m: images.append((m.reg('r0'), m.reg('r1'))))
+    widget = 0x28120000
+    trampoline = 0x28e5ff00
+    machine.load(trampoline, bytes.fromhex('80b5 1627') + pm.bl(trampoline + 4, MOD + symbols['preset_icon_dim_xl'])
+                 + bytes.fromhex('80bd'))
+    for color[0] in range(1, 11):
+        for style, source in enumerate(pc.XL_DIM_TILES):
+            machine.call(trampoline, widget, source)
+            assert images[-1] == (widget, dimmed[style * 10 + color[0] - 1]), machine.log
+
+
+@pytest.mark.firmware
+def test_xl_other_preset_color_dims_its_footswitch_ring(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e7, e8 = pa.get_entry_swapped(archive, 7), pa.get_entry_swapped(archive, 8)
+    _, _, selected, dimmed = pc.xl_tile_records(e7, e8)
+    code, symbols = m4emu.assemble('src/m4/preset_color_xl.s', MODS, IDS, inc={
+        'xl_preset_color.inc': pc.xl_include(0x28e50001, selected, dimmed)})
+    machine = m4emu.M4(code, MOD)
+    color = [1]
+    calls = []
+    machine.stub(0x28df6288, lambda m: m.write(m.reg('r0'), bytes(8)))
+    machine.stub(0x28df6670, lambda m: m.write(m.reg('r1'), bytes(40)))
+    machine.stub(0x28df57ec, lambda m: m.reg('r0', 0))
+    machine.stub(0x28df60a4, lambda m: m.reg('r0', 0))
+    machine.stub(0x28dad344, lambda m: m.reg('r0', 70))
+    machine.stub(0x28dad230, lambda m: m.reg('r0', 1))
+    machine.stub(0x28dad1c0, lambda m: (m.write(m.reg('r1'), key(color[0])), m.reg('r0', 8)))
+    machine.stub(0x28df5e18)
+    machine.stub(0x28dbb308, lambda m: calls.append(('color', m.reg('r0'), m.reg('r1'))))
+    machine.stub(0x28dbb36c, lambda m: calls.append(('mode', m.reg('r0'), m.reg('r1'))))
+    machine.stub(0x28dd8a58)
+    trampoline = 0x28e5ff00
+    asm = pm.Asm(trampoline)
+    asm.h(0xb580)
+    asm.h(0xb082)
+    asm.h(0x466b)
+    asm.h(0x2216)
+    asm.h(0x709a)
+    asm.h(0x2800)
+    asm.bl(MOD + symbols['preset_ring_dim_xl'])
+    asm.h(0xb002)
+    asm.h(0xbd80)
+    machine.load(trampoline, asm.bytes())
+    for color[0], expected in enumerate(DIMS, start=1):
+        calls.clear()
+        machine.call(trampoline, 3)
+        assert calls == [('color', 3, expected), ('mode', 3, 1)]
 
 
 @pytest.mark.firmware

@@ -1,13 +1,15 @@
 """src/m4/preset_keys.s and tools/patch_menu.py's preset keys: the engine that owns the preset file's write, TOC count and section-10
 read and hands each feature its own key, run in unicorn with two stand-in features; and the firmware it builds."""
+import os
 import struct
 
 import pytest
 
 import features
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
-from firmware import branch_target, built
+from firmware import branch_target, built, reader
 
 MODS = features.load()
 IDS = setting_ids.by_name()
@@ -23,19 +25,19 @@ class Engine:
     """The engine with features A (key 0x40) and B (key 0x41): each writer writes its bytes (none: no key) and returns its count;
     each finder logs (feature, key, data)."""
 
-    def __init__(self, m4emu):
+    def __init__(self, m4emu, layout=pm.STOMP_MENU):
         keys = {0x40: ('a', WRITERS[0], FINDERS[0]), 0x41: ('b', WRITERS[1], FINDERS[1])}
-        code, self.sym = m4emu.assemble('src/m4/preset_keys.s', MODS, IDS, inc={'preset_keys.inc': pm.preset_keys_inc(keys)})
+        code, self.sym = m4emu.assemble('src/m4/preset_keys.s', MODS, IDS, inc={'preset_keys.inc': pm.preset_keys_inc(keys, layout)})
         self.m = m4emu.M4(code, ENGINE)
         self.writes, self.found, self.written, self.flag, self.section = {'a': b'', 'b': b''}, [], [], 0, b''
         self.m.u32(STREAM, SINK)
         self.m.u32(STREAM + 4, WRITE_FN | 1)
         self.m.stub(WRITE_FN, lambda m: self.written.append(m.read(m.reg('r1'), m.reg('r2'))))
-        self.m.stub(SERIALIZE, lambda m: (self.written.append(b'<map>'), m.reg('r0', 7)))
-        self.m.stub(TOC_WRITE, lambda m: m.reg('r0', 3))
-        self.m.stub(PRESET, lambda m: m.reg('r0', 0x28720000))
-        self.m.stub(PRESET_FLAG, lambda m: m.reg('r0', self.flag))
-        self.m.stub(SECTION_READ, self._section)
+        self.m.stub(layout.preset_calls[0][1], lambda m: (self.written.append(b'<map>'), m.reg('r0', 7)))
+        self.m.stub(layout.preset_calls[1][1], lambda m: m.reg('r0', 3))
+        self.m.stub(layout.preset_get, lambda m: m.reg('r0', 0x28720000))
+        self.m.stub(layout.preset_flag, lambda m: m.reg('r0', self.flag))
+        self.m.stub(layout.preset_calls[2][1], self._section)
         for name, at in zip('ab', WRITERS):
             self.m.stub(at, lambda m, name=name: self._write(m, name))
         for name, at in zip('ab', FINDERS):
@@ -77,6 +79,53 @@ def key(k, data):
 
 def test_a_save_with_no_feature_data_is_a_stock_file(engine):
     assert engine.save() == [b'<map>'], 'no key, and the count left alone'
+
+
+def test_xl_preset_key_engine_saves_and_loads(m4emu):
+    engine = Engine(m4emu, pm.XL_MENU)
+    engine.flag = 1
+    engine.writes = {'a': key(0x40, b'aa'), 'b': key(0x41, b'bb')}
+    assert engine.save() == [b'<map>', key(0x40, b'aa'), key(0x41, b'bb'), b'\x8c']
+    data = b'\x0c\x90' + key(0x40, b'aa') + key(0x41, b'bb')
+    assert engine.load(data) == len(data)
+    assert engine.found == [('a', START, None), ('b', START, None), ('a', 0x40, b'aa'), ('b', 0x40, b'aa'),
+                            ('a', 0x41, b'bb'), ('b', 0x41, b'bb')]
+
+
+def test_serializer_callbacks_bracket_stock_serialization_and_feature_keys(m4emu):
+    before, after = 0x28710040, 0x28710050
+    keys = {0x40: ('snapshots', WRITERS[0], FINDERS[0])}
+    callbacks = {'before': [('snapshots', before)], 'after': [('snapshots', after)]}
+    code, symbols = m4emu.assemble('src/m4/preset_keys.s', MODS, IDS,
+                                   inc={'preset_keys.inc': pm.preset_keys_inc(keys, pm.STOMP_MENU, callbacks)})
+    machine = m4emu.M4(code, ENGINE)
+    events = []
+    machine.stub(before, lambda m: events.append('before'))
+    machine.stub(after, lambda m: events.append('after'))
+    machine.stub(SERIALIZE, lambda m: (events.append('stock'), m.reg('r0', 7)))
+    machine.stub(WRITERS[0], lambda m: (events.append('key'), m.reg('r0', 1)))
+    machine.call(ENGINE + symbols['pk_serialize'], STREAM, HEADER)
+    assert events == ['before', 'stock', 'after', 'key']
+
+
+@pytest.mark.firmware
+def test_xl_preset_hooks_match_and_patch_stock(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e0 = pa.get_entry_swapped(archive, 0)
+    stock_read = reader(e0)
+    for site, target, _ in pm.XL_MENU.preset_calls:
+        assert stock_read(site, 4) == pm.bl(site, target)
+    assert branch_target(0x28df0d3e, stock_read(0x28df0d3e, 4)) == pm.XL_MENU.preset_get
+    assert branch_target(0x28df0d44, stock_read(0x28df0d44, 4)) == pm.XL_MENU.preset_flag
+    patch = pm.Patch(e0, [], {}, layout=pm.XL_MENU)
+    patch.preset_key(0x40, WRITERS[0], FINDERS[0])
+    module = pm.add_preset_keys(patch)
+    read = reader(patch.entry0())
+    for site, _, handler in pm.XL_MENU.preset_calls:
+        assert branch_target(site, read(site, 4)) == module[handler]
 
 
 @pytest.mark.parametrize('flag, base', [(0, 0x89), (1, 0x8a)])

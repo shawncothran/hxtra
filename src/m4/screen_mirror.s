@@ -13,20 +13,8 @@
 .thumb
 .include "usb.inc"                  @ CMD: this feature's line in tools/usb_commands.py
 .equ SERVICE, 6                     @ the editor
-.equ FB0, 0x28d1ce98                @ the first of the three framebuffers
 .equ FB_BYTES, 0x25800              @ 320 x 240 x 2
 .equ LCD_UPBASE, 0x40008010         @ the LCD controller's frame address: the buffer on screen
-.equ REGISTER, 0x28e165f1           @ (command, {handler, check, 0}): the editor's command table
-.equ NO_PARAMS, 0x28e19205          @ the check of the commands that take no parameters
-.equ WRITER, 0x28e157c9             @ (service) -> the service's reply writer {context, write(context, bytes, n)}
-.equ PREFIX_LEN, 0x28e157ed         @ (service) -> the word counting the bytes it holds
-.equ PREFIX, 0x28e15811             @ (service) -> those bytes
-.equ PREFIX_RESET, 0x28e15835       @ (service): empties it
-.equ REPLY_HEAD, 0x28e15879         @ (writer, seq, status): the reply map's head, up to the result's key
-.equ LOCK, 0x28e24c01               @ (stream - 8): the stream's lock, held around a reply's writes
-.equ UNLOCK, 0x28e24bb1
-.equ CLOCK, 0x28da6459              @ () -> µs
-.equ SLEEP, 0x28e24c59              @ (µs): the task sleeps, so others run
 .equ YIELD_BYTES, FB_BYTES / 8      @ the coding sleeps each time it passes another eighth of the frame: knob turns waited for it
 .equ YIELD_US, 1000
 .equ BIN32, 0xc6
@@ -37,8 +25,6 @@
 .equ MAX_LITERAL_BYTES, 2 * 0x3fff
 .equ TRAILER, 12                    @ bytes: the frame's µs, then the coding's and the sending's
 .equ RING, 64                       @ events kept for the next reply: a power of two
-.equ LED_COLOURS, 0x281f35e0        @ the LED driver's colour of each footswitch ring: 3 bytes each, as the LED send takes it
-.equ LED_MODES, 0x281f35f8          @ and its mode: 0 off, 1 on, 2 blinking
 .equ LEDS, 3
 .equ EVENT, 12                      @ a record's bytes: µs, then the event
 .equ CHUNK, 4096                    @ bytes sent at a time

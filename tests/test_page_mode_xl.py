@@ -126,7 +126,7 @@ def test_non_page_keys_do_not_change_mode(page_mode):
 
 
 @pytest.mark.firmware
-@pytest.mark.parametrize('mirror', [False])
+@pytest.mark.parametrize('mirror', [False, True])
 def test_xl_build_always_chains_page_mode_with_other_event_handlers(monkeypatch, mirror):
     stock = os.environ.get('HX_STOMP_XL_HXF')
     if not stock:

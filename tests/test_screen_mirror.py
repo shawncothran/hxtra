@@ -2,6 +2,7 @@
 changes since the one before), the command's registration and reply run in tests/m4emu.py against a model of the editor's reply
 functions, and the build on the stock firmware."""
 import json
+import os
 import random
 import shutil
 import struct
@@ -18,6 +19,8 @@ import features
 import hx_ctl
 import hx_mirror as hm
 import image_store
+import patch_amp as pa
+import patch_menu as pm
 import usb_commands
 from features import screen_mirror as sm
 from firmware import branch_target, menu_entry0, reader, stock_e0
@@ -673,32 +676,35 @@ def test_an_mp4_has_the_takes_sound_moved_by_its_offset(stomp_render, tmp_path):
 class Editor:
     """screen_mirror.s in the M4 with the editor's reply functions modelled: the prefix they build, a stream that collects writes."""
 
-    def __init__(self, m4emu, text, sym):
+    def __init__(self, m4emu, text, sym, profile=sm.STOMP):
         self.sym, self.out, self.prefix, self.locked, self.events, self.on_head = sym, b'', b'', False, [], None
+        self.profile = profile
         self.m = m = m4emu.M4(text, MOD)
         m.map(LCD, 0x1000)
         m.u32(STREAM, VTABLE)
         m.u32(VTABLE + 4, WRITE | 1)
         m.u32(VTABLE + 0xc, FINISH | 1)
         m.write(WRITER_OBJ, struct.pack('<II', 0x1234, WRITER_FN | 1))
-        m.stub(WRITER, lambda m: self.service(m, WRITER_OBJ))
-        m.stub(PREFIX_LEN, lambda m: self.service(m, COUNT))
-        m.stub(PREFIX, lambda m: self.service(m, PREFIX_BUF))
-        m.stub(PREFIX_RESET, self.reset)
-        m.stub(REPLY_HEAD, self.head)
+        register, _, writer, prefix_len, prefix, prefix_reset, reply_head, lock, unlock, clock, sleep = \
+            (address for address, _, _ in profile.called[:11])
+        m.stub(writer, lambda m: self.service(m, WRITER_OBJ))
+        m.stub(prefix_len, lambda m: self.service(m, COUNT))
+        m.stub(prefix, lambda m: self.service(m, PREFIX_BUF))
+        m.stub(prefix_reset, self.reset)
+        m.stub(reply_head, self.head)
         m.stub(WRITER_FN, lambda m: self.add(m.read(m.reg('r1'), m.reg('r2'))))
-        m.stub(LOCK, lambda m: self.lock(m, True))
-        m.stub(UNLOCK, lambda m: self.lock(m, False))
+        m.stub(lock, lambda m: self.lock(m, True))
+        m.stub(unlock, lambda m: self.lock(m, False))
         m.stub(WRITE, self.write)
         m.stub(FINISH, self.finish)
-        m.stub(REGISTER, lambda m: m.reg('r0', 0))
+        m.stub(register, lambda m: m.reg('r0', 0))
         self.clock = [100, 350, 1000, 0x12345 + 1000]
-        m.stub(CLOCK, lambda m: m.reg('r0', self.clock.pop(0)))
-        m.stub(SLEEP)
+        m.stub(clock, lambda m: m.reg('r0', self.clock.pop(0)))
+        m.stub(sleep)
         self.event_at = 0x28f82000
-        self.show(FB0)
-        m.write(LED_COLOURS, bytes([0x00, 0xcc, 0xff, 0x40, 0xff, 0x00, 0x00, 0x00, 0xff]))   # as the colour setter stores 0xRRGGBB
-        m.write(LED_MODES, bytes([1, 0, 2]))
+        self.show(profile.framebuffer)
+        m.write(profile.led_colours, bytes([0x00, 0xcc, 0xff, 0x40, 0xff, 0x00, 0x00, 0x00, 0xff]))
+        m.write(profile.led_modes, bytes([1, 0, 2]))
 
     def service(self, m, ret):
         assert m.reg('r0') == 6, 'the editor service'
@@ -737,8 +743,8 @@ class Editor:
     def show(self, fb):
         self.m.u32(LCD + 0x10, fb)
 
-    def frame(self, frame, fb=FB0):
-        self.m.write(fb, frame.astype('<u2').tobytes())
+    def frame(self, frame, fb=None):
+        self.m.write(self.profile.framebuffer if fb is None else fb, frame.astype('<u2').tobytes())
 
     def event(self, us, event):
         """A UI event posted at us: what the hook on the post runs."""
@@ -764,7 +770,7 @@ class Editor:
 def editor(m4emu, monkeypatch):
     monkeypatch.setattr(m4emu, 'STEPS', 20_000_000)             # a frame of literals takes some 3 M instructions
     if 'mirror' not in _code:
-        _code['mirror'] = m4emu.assemble('src/m4/screen_mirror.s', features.load(), {}, inc={'usb.inc': usb_commands.inc('screen_mirror')})
+        _code['mirror'] = m4emu.assemble('src/m4/screen_mirror.s', features.load(), {}, inc={'usb.inc': sm.mirror_inc(sm.STOMP)})
     return Editor(m4emu, *_code['mirror'])
 
 
@@ -784,6 +790,38 @@ def test_the_reply_carries_the_shown_frame_coded_as_the_host_codes_it(editor):
     assert np.array_equal(hm.decode(rep[0x68]), frame)
     assert hm.stats(rep[0x68]) == (250, 0x12345)
     assert np.array_equal(editor.prev(), frame)
+
+
+def test_xl_diagnostic_mirror_reports_the_screen_and_events(m4emu, monkeypatch):
+    monkeypatch.setattr(m4emu, 'STEPS', 20_000_000)
+    code, symbols = m4emu.assemble('src/m4/screen_mirror.s', features.load(), {},
+                                   inc={'usb.inc': sm.mirror_inc(sm.XL)}, layout=pm.XL_MENU)
+    editor = Editor(m4emu, code, symbols, sm.XL)
+    frame = screen()
+    editor.frame(frame)
+    event = bytes([1, 13, 0, 0, 1, 0, 0, 0])
+    editor.event(50, event)
+    blob = editor.screen()[0x68]
+    assert np.array_equal(hm.decode(blob), frame)
+    assert hm.events(blob) == (100, [(50, event)])
+    assert hm.leds(blob) == [(0xffcc00, 1), (0x00ff40, 0), (0xff0000, 2)]
+
+
+@pytest.mark.firmware
+def test_xl_diagnostic_mirror_hooks_match_stock():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e0 = pa.get_entry_swapped(archive, 0)
+    stock = reader(e0)
+    assert sm.CMD not in usb_commands.registered(stock, branch_target, sm.XL.called[0][0])
+    patch = pm.Patch(e0, [], {}, layout=pm.XL_MENU)
+    sm.apply(patch)
+    patch.finish_chains()
+    read = reader(patch.entry0())
+    assert branch_target(sm.XL.register_all_call, read(sm.XL.register_all_call, 4)) > sm.XL.register_all_call
+    assert branch_target(sm.XL.post, read(sm.XL.post, 4)) > sm.XL.post
 
 
 def test_the_next_seq_gets_the_changes_and_any_other_the_whole_frame(editor):

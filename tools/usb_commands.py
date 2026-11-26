@@ -28,11 +28,11 @@ def inc(feature):
     return f'.equ CMD, {by_feature()[feature]:#x}\n'
 
 
-def registered(read, branch_target):
+def registered(read, branch_target, register=REGISTER):
     """The commands the firmware read(va, n) registers: the movs r0, #command before each call of REGISTER."""
     found = []
-    for at in range(REGISTER - 0x8000, REGISTER + 0x10000, 2):
+    for at in range(register - 0x8000, register + 0x10000, 2):
         hw = read(at, 4)
-        if hw[1] & 0xf8 == 0xf0 and hw[3] & 0xd0 == 0xd0 and branch_target(at, hw) == REGISTER:
+        if hw[1] & 0xf8 == 0xf0 and hw[3] & 0xd0 == 0xd0 and branch_target(at, hw) == register:
             found.append(next(read(at - b, 2)[0] for b in range(2, 14, 2) if read(at - b, 2)[1] == 0x20))
     return found

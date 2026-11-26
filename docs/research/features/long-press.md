@@ -2,6 +2,10 @@
 
 A hold action per footswitch, FS1..FS5 Hold, and the virtual footswitches FS6..FS10 on MIDI CC 20..24. Status tags as in [conventions.md](../conventions.md).
 
+## HX Stomp XL port
+
+- **HX Stomp XL** [verified offline]: FS1..FS6 are built in and FS7..FS8 are external. The five virtual switches are FS9..FS13, on MIDI CC 20..24; XL hold actions default to Off.
+
 ## As built [verified offline]
 
 - **Long press, as built** (`HX_LONG_PRESS`, `tools/features/long_press.py`, `src/m4/long_press.s`):
