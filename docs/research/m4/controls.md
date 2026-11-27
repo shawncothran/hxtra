@@ -18,6 +18,8 @@ What each control of the HX Stomp does in the stock 3.80 UI, every button combin
 
 The Upper and Lower Knob roles are [verified on unit] (`knob4` steps the Edit view's block and Global Settings' sections, `knob5`'s press opens the model browser). The manual's "Menu" icon (☰) means PAGE◀ and PAGE▶ pressed together.
 
+**HX Stomp XL** [verified on unit]: the six built-in footswitches produce class-1 press codes 17..22, paired with touch codes 9..14. `hx_input.py` selects the XL map by USB product ID and sends `fs1`..`fs8` as press codes 17..24; touch is available for `fs1`..`fs6`. The mapping of physical positions to numbered FS labels, and external FS7..FS8, remain unverified.
+
 ## Sending a combination
 
 The firmware's own code that recognises two keys down together has not been looked for; the known-good way is to put the presses in the key queue back to back, as a hand would. Every event goes through the key queue (`0x28db88fc`) and the UI event post (`0x28db8830`), so a sent event reaches the UI exactly as a real one ([m4/footswitches.md](footswitches.md#functions-and-events)).
@@ -82,6 +84,10 @@ PAGE◀ and PAGE▶ on Home step the footswitch mode through Stomp, Scroll, Pres
 - A footswitch's touch selects only when Global Settings > Footswitches > Stomp Select is Touch (the default) or Both.
 - HXtra changes some holds: [Long press](../features/long-press.md) gives each footswitch a Hold function, and the [tuner page](../features/tuner-page.md)'s Tuner Activation decides how TAP opens the tuner. Check those settings before relying on a stock hold.
 
+**HX Stomp XL** [verified on unit]: HXtra makes PAGE◀ and PAGE▶ cycle Play through Stomp, Preset, Snapshot and Looper. Edit and Menu keep their normal PAGE behavior, and pressing both PAGE buttons still opens Menu. The PAGE handler leaves non-PAGE events unchanged.
+
+Line 6's [HX Stomp XL 3.80 manual](https://line6.com/data/6/0a000f7104c06a8f76c6746a1/application/pdf/HX%20Stomp%20XL%203.80%20Owner%27s%20Manual%20-%20English%20.pdf) describes MODE selecting Preset mode, exiting Snapshot mode, and entering Pedal Edit when held for one second.
+
 ## Edit view
 
 | shortcut | what it does | status |
@@ -99,6 +105,7 @@ PAGE◀ and PAGE▶ on Home step the footswitch mode through Stomp, Scroll, Pres
 | **touch hold FS1 or FS2** (FS3 when it is Stomp 3), Stomp mode | "Assign block to FS?" for the selected block: Knob 2 Merge/Replace, Knob 3 OK | [verified on unit] |
 
 **ACTION on a block** (the block is picked up; ACTION again or VIEW drops it) [hypothesis]:
+
 - Page 1: Upper Knob turn moves the block; Knob 1 Path (A or B), Knob 2 Copy Block, Knob 3 Paste Block (paste works in another preset too).
 - PAGE▶: Knob 1 Clear Block, Knob 2 Clear All Blocks (then Knob 3 OK), Knob 3 Snapshot Bypass (On/Off).
 - PAGE▶ again: Knob 1 Add to Favorites (then Lower Knob picks a place, Knob 2 Replace, Knob 3 Add New), Knob 2 Factory Default, Knob 3 User Default.

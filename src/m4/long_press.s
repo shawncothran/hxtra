@@ -7,6 +7,7 @@
 .syntax unified
 .thumb
 .include "hxtra.inc"
+.include "long_press.inc"
 .equ PRESS, 1
 .equ RELEASE, 2
 .equ CLICK, 3                       @ a release before a hold, posted after the release
@@ -461,6 +462,7 @@ lp_cc_text:                         @ after the itoa that puts a CC's digits aft
     movs r2, #'S'
     strb r2, [r1, #1]
     movs r3, #0
+.if VIRTUAL_FIRST == 6
     cmp r0, #4
     beq cc_text_ten
     adds r0, #'6'
@@ -472,6 +474,19 @@ cc_text_ten:
     strb r2, [r1, #2]
     movs r2, #'0'
     strb r2, [r1, #3]
+.else
+    cmp r0, #10 - VIRTUAL_FIRST
+    bhs cc_text_two_digits
+    adds r0, #'0' + VIRTUAL_FIRST
+    strb r0, [r1, #2]
+    strb r3, [r1, #3]
+    bx lr
+cc_text_two_digits:
+    movs r2, #'1'
+    strb r2, [r1, #2]
+    adds r0, #'0' + VIRTUAL_FIRST - 10
+    strb r0, [r1, #3]
+.endif
     strb r3, [r1, #4]
 cc_text_out:
     bx lr

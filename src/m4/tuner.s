@@ -8,23 +8,6 @@
 .equ STOCK_PAGES, 4
 .equ KNOBS, 2                       @ knob 2 of this page is empty
 .equ PRESS, 1                       @ Tuner Activation's Press
-.equ GUARD, 0x28d96135              @ (5) -> 0 when the tuner may open, as the stock hold of TAP asks
-.equ REQUEST_TUNER, 0x28d96589
-.equ TAP_CORE, 0x28d9bfa9
-.equ TURN_FN_CONT, 0x28d916d9       @ the knob handler after its prologue, which tuner_turn_hook runs itself
-.equ RESET_RET, 0x28d9176f          @ the event handler's pop {r3,r4,r5,pc}
-.equ PAINT, 0x28dcca61              @ (view): takes the widget lock itself
-.equ PAINT_TBH, 0x28dcca93
-.equ PAINT_END, 0x28dccb65
-.equ STEPS, 0x28dfe2d9              @ (raw knob delta) -> detents
-.equ SHOW, 0x28dc6599               @ (knob, shown)
-.equ VALUE_TEXT, 0x28dc654d         @ (knob, text)
-.equ POSITION, 0x28dc648d           @ (knob, 0.0f..1.0f)
-.equ LABEL, 0x28dc63d1              @ (knob, text)
-.equ NEXT_CONT, 0x28d91785
-.equ PREV_CONT, 0x28d917c7
-.equ STORE_CONT, 0x28d917cf
-.equ DOTS_CONT, 0x28dccd57
 
 .macro SHOWN reg                    @ \reg a page -> its place in the order
     cmp \reg, #PAGE
@@ -87,9 +70,9 @@ tuner_reset\knob:                   @ the event handler's reset of a knob (r4 th
     ldr pc, =\cont
 1:  ldr pc, =RESET_RET
 .endm
-RESET 0, 0x28d91859
-RESET 1, 0x28d91843
-RESET 2, 0x28d917ff
+RESET 0, RESET0_CONT
+RESET 1, RESET1_CONT
+RESET 2, RESET2_CONT
 
 .thumb_func
 tuner_next_page:                    @ in place of the next-page case's read of the page (the view in r1): r3 its place in the order
@@ -265,10 +248,7 @@ knobs:                              @ per knob: ID, max, default
     .byte SETTING_TUNER_LOCK_MAX, SETTING_TUNER_LOCK_DEFAULT
 colours:                            @ (function, colour) as the stock paints a knob that can be turned
     .word LABEL_COLOUR_FN, 0xffffff
-    .word 0x28dc651d, 0x6b6b6b
-    .word 0x28dc6535, 0x4d4d4d
-    .word 0x28dc6505, 0xb1b1b1
-    .word 0x28dc6569, 0xb1b1b1
+    TUNER_COLOURS
 colours_end:
 .balignl 16, 0                      @ not .balign: clang 18 pads that with nops in .text, Apple clang 21 with zeros
 labels:                             @ per knob, 16 bytes: tools/features/tuner.py's labels

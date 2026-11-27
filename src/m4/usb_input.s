@@ -7,13 +7,6 @@
 .syntax unified
 .thumb
 .include "usb.inc"                  @ CMD: this feature's line in tools/usb_commands.py
-.equ REGISTER, 0x28e165f1           @ (command, {first, then, 0}): the editor's command table
-.equ NO_PARAMS, 0x28e19205          @ returns 0: the second call, as the command replies in the first
-.equ SEND, 0x28e15b31               @ (stream, seq, status, result, [sp] its bytes): a whole reply
-.equ PUT, 0x28db88fd                @ (event): the key queue's put, under its lock; it wakes the UI task
-.equ QUEUE, 0x281f3db0              @ the key queue: 8000 bytes
-.equ ROOM, 0x28db9a59               @ (queue) -> its free bytes; the put stops the unit (bkpt) with fewer than 8
-.equ SLEEP, 0x28e24c59              @ (µs)
 .equ EVENT, 8
 .equ MAX, 16                        @ events a request
 .equ SPARE, 64                      @ free bytes the put needs before it: other controls put theirs between the check and the put

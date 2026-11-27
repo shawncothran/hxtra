@@ -8,16 +8,18 @@ import struct
 import pytest
 
 import features
+import image_store
 import patch_amp as pa
 import patch_menu as pm
 import setting_ids
 from features import more_snapshots as ms
-from firmware import branch_target, built
+from firmware import branch_target, built, reader
 
 MODS = features.load()
 IDS = setting_ids.by_name()
 
 MGR, CODE, ENGINE = 0x2812c630, 0x28e60000, 0x28e70000
+STOMP_MODULE = 'src/m4/more_snapshots_stomp.s'
 SELECT, RECORD_INIT = 0x28de2f90, 0x28de14b4
 LOCK, UNLOCK, MEMCPY, MEMSET = 0x28e24c00, 0x28e24bb0, 0x28e24c78, 0x28e24b78
 STREAM, HEADER = 0x28700000, 0x28700100     # a serializer's arguments: it finds the manager itself
@@ -32,6 +34,67 @@ LABEL_X, LABEL_Y = (53, 160, 267), 100
 WIDGET_LOCK, WIDGET_UNLOCK, REDRAW, FILL, TEXT = 0x28e24970, 0x28e24ae8, 0x28db8508, 0x100017e8, 0x28db7aa4
 REC, RECS, CUR, PREV, BUSY = 0x260, 0xc, 0x743, 0x744, 0x9a9
 VALID, NAME = 0x24b, 0x255            # in a record: set once it holds a sound; its name, 11 bytes
+
+
+@pytest.mark.firmware
+def test_xl_stock_snapshot_writer_preserves_four_snapshots():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    read = reader(pa.get_entry_swapped(archive, 0))
+    assert read(0x28de9bdc, 2) == bytes.fromhex('9423')
+    assert read(0x28de9b3c, 4) == bytes.fromhex('94f8033a')
+    assert read(0x28de9dc4, 4) == bytes.fromhex('03f51e75')
+
+
+@pytest.mark.firmware
+def test_xl_snapshot_key_engine_and_load_finish_hooks_match_stock():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    stock = load(0)
+    patch = pm.Patch(stock, MODS, IDS, load=load, layout=pm.XL_MENU)
+    patch.owner = 'more_snapshots'
+    ms.apply(patch)
+    engine = pm.add_preset_keys(patch)
+    patch.finish_chains()
+    read = reader(patch.entry0())
+    assert engine is not None
+    assert [branch_target(site, read(site, 4)) for site, _, _ in pm.XL_MENU.preset_calls] == [
+        engine[handler] for _, _, handler in pm.XL_MENU.preset_calls]
+    for site, stock in ms.XL.select_sites:
+        assert branch_target(site, read(site, 4)) != stock
+    module = patch.modules['src/m4/more_snapshots.s']
+    assert branch_target(ms.XL.next_cur[0], read(ms.XL.next_cur[0], 4)) == module['snaps_next_cur']
+    assert branch_target(ms.XL.prev_cur[0], read(ms.XL.prev_cur[0], 4)) == module['snaps_prev_cur']
+    assert branch_target(ms.XL.cc_range, read(ms.XL.cc_range, 4)) == module['snaps_xl_cc69']
+    assert read(ms.XL.cc_range + 4, 2) == bytes.fromhex('00bf')
+    button_site, _ = ms.XL.snapshot_button
+    assert branch_target(button_site, read(button_site, 4)) == module['snaps_xl_button']
+    mode_site, _, _, _ = ms.XL.snapshot_mode_branch
+    assert branch_target(mode_site, read(mode_site, 4)) == module['snaps_xl_mode_branch']
+    for site, stock in ms.XL_PLAY_SET_CALLS:
+        assert branch_target(site, read(site, 4)) == module['snaps_xl_play_set']
+    site, stock = ms.XL_PLAY_LOOKUP
+    assert branch_target(site, read(site, 4)) == module['snaps_xl_play_lookup']
+    for site, _ in ms.XL.load_finish_sites:
+        assert branch_target(site, read(site, 4)) == patch.modules['src/m4/more_snapshots.s']['snaps_xl_load_finish']
+    assert set(patch.output()) == {0, 7, 8}
+
+
+@pytest.mark.firmware
+def test_xl_more_snapshots_builds_through_the_feature_gate():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    output, on = pm.menu_entries(load, MODS, {'HX_MORE_SNAPSHOTS': '1'}, IDS, layout=pm.XL_MENU)
+    assert 'more_snapshots' in [features.name(module) for module in on]
+    assert set(output) == {0, 7, 8}
 
 
 def record(i):
@@ -50,7 +113,8 @@ class Manager:
     """The module in unicorn, with the manager's records, the lock, and select doing what stock does to them."""
 
     def __init__(self, m4emu, at=CODE):
-        code, self.sym = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS)
+        code, self.sym = m4emu.assemble(STOMP_MODULE, MODS, IDS,
+                        inc={'snapshots.inc': ms.snapshots_inc(ms.STOMP)})
         self.at = at
         self.m = m4emu.M4(code, at)
         keys = {ms.FILE_KEY: ('more_snapshots', at + self.sym['snaps_key_write'], at + self.sym['snaps_key_found'])}
@@ -759,11 +823,262 @@ def test_a_preset_load_forgets_the_last_presets_bank_b(mgr):
 
 def test_feature_flag():
     assert ms.FLAG == 'HX_MORE_SNAPSHOTS' and not getattr(ms, 'SETTINGS', ())
+    assert (ms.STOMP.native, ms.STOMP.extra, ms.STOMP.record) == (3, 3, 0x260)
+    assert (ms.XL.native, ms.XL.extra, ms.XL.record) == (4, 4, 0x278)
+
+
+def test_xl_module_allocates_four_extra_records(m4emu):
+    code, symbols = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS,
+                                   inc={'snapshots.inc': ms.snapshots_inc(ms.XL)}, layout=pm.XL_MENU)
+    assert symbols['snaps_staged'] - symbols['snaps_shadow'] == 4 * ms.XL.record
+    assert len(code) >= symbols['snaps_staged'] + 4 * ms.XL.record
+
+
+@pytest.mark.firmware
+def test_xl_play_tiles_append_snapshot_five_through_eight_in_each_style():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e7, e8 = pa.get_entry_swapped(archive, 7), pa.get_entry_swapped(archive, 8)
+    items, records, originals, variants = ms.xl_play_tiles(e7, e8)
+    assert len(items) == len(records) == len(originals) == len(variants) == 24
+    assert len(set(originals)) == 24
+    new_e7, new_e8 = image_store.append_records(e7, records), image_store.append_items(e8, items)
+    assert image_store.names(new_e7) == image_store.names(e7)
+    for source_index, variant_index in zip(originals, variants):
+        source = image_store.image_at(e7, e8, source_index)
+        variant = image_store.image_at(new_e7, new_e8, variant_index)
+        assert (variant.width, variant.height, variant.bpp) == (source.width, source.height, source.bpp)
+        assert variant.item != source.item
+
+
+@pytest.mark.firmware
+def test_xl_play_tiles_follow_images_queued_by_other_features(m4emu, monkeypatch):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda index: pa.get_entry_swapped(archive, index)
+    entry7, entry8 = load(7), load(8)
+    items, records, originals, variants = ms.xl_play_tiles(entry7, entry8)
+    expected7, expected8 = image_store.append_records(entry7, records), image_store.append_items(entry8, items)
+    patch = pm.Patch(load(0), MODS, IDS, load=load, layout=pm.XL_MENU)
+    patch.owner = 'earlier feature'
+    patch.entry(8).add_item(b'\x00' * 8)
+    offset = image_store.record_at(entry7, 0)
+    patch.entry(7).add_record(entry7[offset:offset + image_store.RECORD])
+    includes = {}
+    module = patch.module
+
+    def capture_module(source, inc=()):
+        includes.update(inc)
+        return module(source, inc=inc)
+
+    monkeypatch.setattr(patch, 'module', capture_module)
+    patch.owner = 'more_snapshots'
+    ms.apply(patch)
+    output = patch.output()
+    code, symbols = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS, inc=includes, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    selected = []
+    machine.stub(0x28e2ade0, lambda emulator: selected.append(emulator.reg('r1')))
+    machine.u8(CODE + symbols['snaps_data'], 1)
+    for original, expected_index in zip(originals, variants):
+        machine.call(CODE + symbols['snaps_xl_play_set'], 0x28120000, original)
+        actual = image_store.image_at(output[7], output[8], selected[-1])
+        expected = image_store.image_at(expected7, expected8, expected_index)
+        assert (actual.width, actual.height, actual.bpp) == (expected.width, expected.height, expected.bpp)
+        assert output[8][actual.offset:actual.offset + actual.length] == expected8[expected.offset:expected.offset + expected.length]
+
+
+@pytest.mark.firmware
+def test_xl_play_tile_remap_only_selects_five_through_eight_in_bank_b(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    e7, e8 = pa.get_entry_swapped(archive, 7), pa.get_entry_swapped(archive, 8)
+    _, _, originals, variants = ms.xl_play_tiles(e7, e8)
+    code, symbols = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS,
+                                   inc={'snapshots.inc': ms.snapshots_inc(ms.XL, originals, variants)},
+                                   layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    image_calls = []
+    machine.stub(0x28e2ade0, lambda m: image_calls.append((m.reg('r0'), m.reg('r1'))))
+    widget = 0x28120000
+    bank = CODE + symbols['snaps_data']
+    for original, variant in zip(originals, variants):
+        machine.u8(bank, 0)
+        machine.call(CODE + symbols['snaps_xl_play_set'], widget, original)
+        assert image_calls[-1] == (widget, original)
+        machine.u8(bank, 1)
+        machine.call(CODE + symbols['snaps_xl_play_set'], widget, original)
+        assert image_calls[-1] == (widget, variant)
+
+
+def test_xl_bank_flip_preserves_four_native_records_and_initializes_four_extras(m4emu):
+    code, symbols = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS,
+                                   inc={'snapshots.inc': ms.snapshots_inc(ms.XL)}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    depth, inits, selected_banks = [0], [], []
+    xl_record = lambda index: MGR + RECS + ms.XL.record * index
+
+    def lock(m):
+        assert m.reg('r0') == MGR + 4 and depth[0] == 0
+        depth[0] += 1
+
+    def unlock(m):
+        assert m.reg('r0') == MGR + 4 and depth[0] == 1
+        depth[0] -= 1
+
+    def initialize(m):
+        index = (m.reg('r1') - MGR - RECS) // ms.XL.record
+        name = m.read(m.reg('r2'), 11).rstrip(b'\0')
+        inits.append(name)
+        m.write(m.reg('r1') + VALID, b'\0')
+        m.write(m.reg('r1') + NAME, name.ljust(11, b'\0'))
+        m.reg('r0', index)
+
+    def select(m):
+        selected_banks.append(m.read(CODE + symbols['snaps_data'], 1)[0])
+        current, target = m.read(MGR + ms.XL.cur, 1)[0], m.reg('r1')
+        if not m.read(xl_record(target) + VALID, 1)[0]:
+            old = m.read(xl_record(current), ms.XL.record)
+            m.write(xl_record(target), old[:VALID] + b'\1' + old[VALID + 1:])
+        m.u8(MGR + ms.XL.prev, current)
+        m.u8(MGR + ms.XL.cur, target)
+        m.reg('r0', 1)
+
+    machine.stub(LOCK, lock)
+    machine.stub(UNLOCK, unlock)
+    machine.stub(MEMCPY, lambda m: m.write(m.reg('r0'), m.read(m.reg('r1'), m.reg('r2'))))
+    machine.stub(MEMSET, lambda m: m.write(m.reg('r0'), bytes([m.reg('r1') & 0xff]) * m.reg('r2')))
+    machine.stub(ms.XL.record_init, initialize)
+    machine.stub(ms.XL.select, select)
+    machine.stub(ms.XL.redraw)
+    originals = []
+    for index in range(4):
+        record = bytearray([0xa0 + index]) * ms.XL.record
+        record[VALID] = 1
+        record[NAME:NAME + 11] = f'N{index + 1}'.encode().ljust(11, b'\0')
+        originals.append(bytes(record))
+        machine.write(xl_record(index), record)
+    machine.u8(MGR + ms.XL.cur, 2)
+    machine.u8(MGR + ms.XL.prev, 1)
+    machine.u8(MGR + ms.XL.busy, 0)
+
+    machine.call(CODE + symbols['snaps_select'], MGR, 2)
+    assert selected_banks == [1], 'XL redraws during select must see bank B'
+    assert machine.read(CODE + symbols['snaps_shadow'], 4 * ms.XL.record) == b''.join(originals)
+    assert inits == [b'SNAPSHOT 5', b'SNAPSHOT 6', b'SNAPSHOT 7', b'SNAPSHOT 8']
+    assert machine.read(MGR + ms.XL.cur, 1)[0] == 2 and machine.read(MGR + ms.XL.busy, 1)[0] == 0
+
+    machine.call(CODE + symbols['snaps_select'], MGR, 2)
+    assert selected_banks == [1, 0], 'XL redraws during select must see bank A'
+    assert [machine.read(xl_record(i), ms.XL.record) for i in range(4)] == originals
+    assert machine.read(MGR + ms.XL.cur, 1)[0] == 2 and depth[0] == 0
+
+    for physical in range(ms.XL.native):
+        machine.u8(MGR + ms.XL.cur, physical)
+        machine.call(CODE + symbols['snaps_xl_button'], MGR, physical)
+        assert machine.read(CODE + symbols['snaps_data'], 1)[0] == 1
+        assert machine.read(MGR + ms.XL.cur, 1)[0] == physical
+        machine.call(CODE + symbols['snaps_xl_button'], MGR, physical)
+        assert machine.read(CODE + symbols['snaps_data'], 1)[0] == 0
+        assert machine.read(MGR + ms.XL.cur, 1)[0] == physical
+
+    mode_calls = []
+    machine.stub(0x28dd9890, lambda _m: mode_calls.append('mode'))
+    machine.stub(0x28dd952e, lambda _m: mode_calls.append('return'))
+    machine.call(CODE + symbols['snaps_xl_mode_branch'], 0, 0, 0, 0)
+    assert mode_calls == ['return'], 'a bank flip must stay in Snapshot mode'
+    machine.call(CODE + symbols['snaps_xl_mode_branch'], 0, 0, 0, 0)
+    assert mode_calls == ['return', 'mode'], 'ordinary selections keep the stock mode transition'
+
+    machine.stub(ms.XL.manager_get, lambda m: m.reg('r0', MGR))
+    machine.stub(ms.XL.select, select)
+    machine.stub(ms.XL.cc_done)
+    machine.stub(ms.XL.cc_direct)
+    machine.stub(ms.XL.cc_remainder)
+    for logical in range(8):
+        machine.call(CODE + symbols['snaps_xl_cc69'], 69, logical)
+        assert machine.read(MGR + ms.XL.cur, 1)[0] == logical % ms.XL.native
+        assert machine.read(CODE + symbols['snaps_data'], 1)[0] == logical // ms.XL.native
+    machine.call(CODE + symbols['snaps_xl_cc69'], 69, 8)
+    assert machine.read(MGR + ms.XL.cur, 1)[0] == 0 and machine.read(CODE + symbols['snaps_data'], 1)[0] == 0
+    machine.call(CODE + symbols['snaps_xl_cc69'], 69, 9)
+    assert machine.read(MGR + ms.XL.cur, 1)[0] == 3 and machine.read(CODE + symbols['snaps_data'], 1)[0] == 1
+
+
+def test_xl_preset_key_round_trips_four_extra_records(m4emu):
+    code, symbols = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS,
+                                   inc={'snapshots.inc': ms.snapshots_inc(ms.XL)}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    machine.stub(ms.XL.manager_get, lambda m: m.reg('r0', MGR))
+    machine.stub(MEMCPY, lambda m: m.write(m.reg('r0'), m.read(m.reg('r1'), m.reg('r2'))))
+    writes = []
+    machine.u32(STREAM, SINK)
+    machine.u32(STREAM + 4, WRITE_FN | 1)
+    machine.stub(WRITE_FN, lambda m: writes.append(m.read(m.reg('r1'), m.reg('r2'))))
+    records = b''.join(bytes([0xc0 + index]) * ms.XL.record for index in range(4))
+    machine.write(MGR + RECS, records)
+    machine.write(CODE + symbols['snaps_data'], b'\x01')
+
+    assert machine.call(CODE + symbols['snaps_key_write'], STREAM) == 1
+    payload_len = 8 + len(records)
+    header = bytes((ms.FILE_KEY, 0xc5, payload_len >> 8, payload_len & 0xff)) + b'HX8B' + bytes((1, 0, 0, 0))
+    assert writes == [header, records]
+
+    machine.write(CODE + symbols['snaps_shadow'], bytes(len(records)))
+    payload = 0x28750000
+    machine.write(payload, header + records)
+    machine.call(CODE + symbols['snaps_key_found'], ms.FILE_KEY, payload + 4, payload_len)
+    assert machine.read(CODE + symbols['snaps_staged'], len(records)) == records
+    assert machine.read(CODE + symbols['snaps_data'] + 6, 1) == b'\x01'
+    machine.call(CODE + symbols['snaps_loaded'])
+    assert machine.read(CODE + symbols['snaps_shadow'], len(records)) == records
+    assert machine.read(CODE + symbols['snaps_data'], 2) == b'\x00\x01'
+    assert machine.read(CODE + symbols['snaps_data'] + 6, 1) == b'\x00'
+
+
+def test_xl_save_callbacks_temporarily_swap_to_native_records(m4emu):
+    code, symbols = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS,
+                                   inc={'snapshots.inc': ms.snapshots_inc(ms.XL)}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    machine.stub(ms.XL.manager_get, lambda m: m.reg('r0', MGR))
+    machine.stub(ms.XL.select, lambda m: (m.u8(MGR + ms.XL.prev, m.read(MGR + ms.XL.cur, 1)[0]),
+                                           m.u8(MGR + ms.XL.cur, m.reg('r1')), m.reg('r0', 1)))
+    machine.stub(ms.XL.redraw)
+    original_a = [bytes([0xa0 + i]) * ms.XL.record for i in range(4)]
+    original_b = [bytes([0xb0 + i]) * ms.XL.record for i in range(4)]
+
+    def manager_record(index):
+        return MGR + RECS + ms.XL.record * index
+
+    for index in range(4):
+        machine.write(manager_record(index), original_b[index])
+        machine.write(CODE + symbols['snaps_shadow'] + ms.XL.record * index, original_a[index])
+    machine.u8(MGR + ms.XL.cur, 2)
+    machine.u8(MGR + ms.XL.prev, 1)
+    machine.u8(MGR + ms.XL.busy, 1)
+    machine.write(CODE + symbols['snaps_data'], b'\x01\x01\0\0')
+    machine.call(CODE + symbols['snaps_saving'])
+    assert [machine.read(manager_record(i), ms.XL.record) for i in range(4)] == original_a
+    assert machine.read(CODE + symbols['snaps_data'], 3) == b'\0\x01\x01'
+    assert machine.read(MGR + ms.XL.busy, 1)[0] == 1
+
+    machine.call(CODE + symbols['snaps_saved'])
+    assert [machine.read(manager_record(i), ms.XL.record) for i in range(4)] == original_b
+    assert machine.read(CODE + symbols['snaps_shadow'], 4 * ms.XL.record) == b''.join(original_a)
+    assert machine.read(CODE + symbols['snaps_data'], 3) == b'\x01\x01\0'
+    assert machine.read(MGR + ms.XL.busy, 1)[0] == 1
 
 
 @pytest.mark.firmware
 def test_build_sends_the_snapshot_footswitch_to_the_module_and_wraps_load_and_save(m4emu):
-    code, sym = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS)
+    code, sym = m4emu.assemble(STOMP_MODULE, MODS, IDS,
+                               inc={'snapshots.inc': ms.snapshots_inc(ms.STOMP)})
     _, esym = m4emu.assemble('src/m4/preset_keys.s', MODS, IDS, inc={'preset_keys.inc': pm.preset_keys_inc({ms.FILE_KEY: ('', 0, 0)})})
     read, on = built({'HX_MORE_SNAPSHOTS': '1'})
     assert 'more_snapshots' in on
@@ -795,7 +1110,8 @@ NEXT_FN, PREV_FN = 7, 8                     # footswitch functions SnpshtUp and 
 def test_the_built_dispatch_crosses_the_banks_for_a_virtual_footswitch(m4emu, k):
     """The built firmware's next and previous cases, entered at the dispatch's switch with its frame, as long press runs an FS6..FS10
     Function (and as a release of FS4 or FS5 reaches them): next on 3 goes to 4 and on 6 to 1, previous on 1 to 6."""
-    code, sym = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS)
+    code, sym = m4emu.assemble(STOMP_MODULE, MODS, IDS,
+                               inc={'snapshots.inc': ms.snapshots_inc(ms.STOMP)})
     read, on = built({'HX_MORE_SNAPSHOTS': '1', 'HX_LONG_PRESS': '1'})
     assert {'more_snapshots', 'long_press'} <= set(on)
     module = branch_target(ms.FS_SELECT_CALLS[0], read(ms.FS_SELECT_CALLS[0], 4)) - sym['snaps_select']
@@ -827,7 +1143,8 @@ CC_HANDLER, CC_HANDLER_END = 0x28d9b120, 0x28d9b700
 def test_the_built_cc_handler_selects_all_six_snapshots_by_cc_69(m4emu):
     """The built firmware's CC handler (cc, value), from its entry: CC 69's 0..5 land on snapshots 1..6 from either bank, 6 and 7
     still do nothing, and next and previous still run through all six."""
-    code, sym = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS)
+    code, sym = m4emu.assemble(STOMP_MODULE, MODS, IDS,
+                               inc={'snapshots.inc': ms.snapshots_inc(ms.STOMP)})
     read, on = built({'HX_MORE_SNAPSHOTS': '1'})
     assert 'more_snapshots' in on and read(ms.CC_RANGE, 2) == ms.CC_RANGE_SIX
     module = branch_target(ms.FS_SELECT_CALLS[0], read(ms.FS_SELECT_CALLS[0], 4)) - sym['snaps_select']
@@ -848,7 +1165,8 @@ def test_the_built_cc_handler_selects_all_six_snapshots_by_cc_69(m4emu):
 
 @pytest.mark.firmware
 def test_build_draws_the_numbers_after_the_top_and_home_paints(m4emu):
-    code, sym = m4emu.assemble('src/m4/more_snapshots.s', MODS, IDS)
+    code, sym = m4emu.assemble(STOMP_MODULE, MODS, IDS,
+                               inc={'snapshots.inc': ms.snapshots_inc(ms.STOMP)})
     read, _ = built({'HX_MORE_SNAPSHOTS': '1'})
     module = branch_target(ms.FS_SELECT_CALLS[0], read(ms.FS_SELECT_CALLS[0], 4)) - sym['snaps_select']
     for lit, fn, handler in ((ms.TOP_PAINT_LIT, ms.TOP_PAINT, 'snaps_paint'), (ms.HOME_PAINT_LIT, ms.HOME_PAINT, 'snaps_home_paint')):

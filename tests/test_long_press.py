@@ -1,10 +1,12 @@
 """tools/features/long_press.py and src/m4/long_press.s: the Hold settings, the event handler run in unicorn against a fake stock
 handler (held-back presses, clicks, holds, the tuner and FS4/FS5, and where the stock behaviour stays), and the firmware it builds."""
+import os
 import struct
 
 import pytest
 
 import features
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
 from features import long_press
@@ -44,7 +46,7 @@ class Handler:
     """lp_event in unicorn: what reaches the stock handler, and the tuner requests."""
 
     def __init__(self, m4emu):
-        code, self.sym = m4emu.assemble('src/m4/long_press.s', MODS, IDS)
+        code, self.sym = m4emu.assemble('src/m4/long_press.s', MODS, IDS, inc={'long_press.inc': long_press.long_press_inc()})
         self.m = m4emu.M4(code, CODE)
         self.settings = {FS_MODE: 0, **{pid: 0 for pid in HOLD_IDS}}     # Off unless a test sets an action
         self.momentary, self.view, self.seen = set(), HOME_VIEW, []
@@ -209,6 +211,218 @@ def test_function_settings():
                             b'SnpshtDn', b'FS Mode>', b'<FS Mode', b'AllBypas', b'TogglEXP', b'GlobalEQ')
         assert all(len(v) <= 8 for v in s.values)
     assert FUNCTION_IDS == [0xda, 0xdb, 0xdc, 0xdd, 0xde], 'a unit keeps a setting\'s value by ID: never move it once a build has used it'
+
+
+def test_xl_hold_settings_cover_eight_switches_and_five_virtual_functions():
+    expected_ids = [0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xed, 0xee, 0xef]
+    keys = [f'long_press.fs{n}' if n <= 5 else f'long_press.fs{n}_hold' for n in range(1, 9)]
+    assert [IDS[key] for key in keys] == expected_ids
+    assert [setting_ids.packing()[setting_id] for setting_id in expected_ids[5:]] == [(116, 0, 4), (116, 4, 4), (116, 8, 4)]
+    assert len(long_press.XL_HOLDS) == 8
+    assert all(setting.default == 0 and setting.values == long_press.XL_HOLD_VALUES for setting in long_press.XL_HOLDS)
+    assert [setting.label for setting in long_press.XL_FUNCTIONS] == [f'Function\nFS{n}'.encode() for n in range(9, 14)]
+    assert all(setting.default == 1 and setting.values == long_press.XL_FUNCTION_VALUES for setting in long_press.XL_FUNCTIONS)
+    assert not setting_ids.virtual_problems()
+    include = pm.hxtra_inc(MODS, IDS, layout=pm.XL_MENU)
+    assert '.equ SETTING_LONG_PRESS_FS8_HOLD, 239\n' in include
+    assert '.equ VIRTUAL_FIRST, 9\n' == long_press.long_press_inc(pm.XL_MENU)
+
+
+@pytest.mark.firmware
+def test_xl_long_press_patches_the_event_handler_and_virtual_switch_hooks():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    patch = pm.Patch(load(0), MODS, IDS, load=load, layout=pm.XL_MENU)
+    patch.owner = 'long_press'
+    long_press.apply(patch)
+    patch.finish_chains()
+    output = patch.output()
+    module = patch.modules['src/m4/long_press_xl.s']
+    assert branch_target(long_press.XL_HANDLER, patch.read(long_press.XL_HANDLER, 4)) == module['xl_hold_event']
+    for site, stock, _what in long_press.XL_ASSIGNMENT_CALLS:
+        assert patch.read(site, 4) != pm.bl(site, stock)
+    assert patch.read(long_press.XL_MIDI_IN_FIRST, 2) == bytes.fromhex('1422')
+    assert set(output) == {0}
+
+
+@pytest.mark.firmware
+def test_xl_long_press_registers_through_the_feature_gate():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    output, on = pm.menu_entries(load, MODS, {'HX_LONG_PRESS': '1', 'HX_PRESET_COLOR': '1'}, IDS, layout=pm.XL_MENU)
+    assert {'long_press', 'preset_color'} <= {features.name(module) for module in on}
+    assert set(output) == {0, 7, 8}
+
+
+def test_xl_holds_default_off_and_pass_all_native_switch_events(m4emu):
+    code, symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc()}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    hold_ids = [IDS[f'long_press.fs{n}'] for n in range(1, 6)] + [IDS[f'long_press.fs{n}_hold'] for n in (6, 7, 8)]
+    settings = {21: 0, **{pid: 0 for pid in hold_ids}}
+    seen = []
+
+    def get_setting(m):
+        pid, output = m.reg('r0'), m.reg('r1')
+        if pid not in settings:
+            m.reg('r0', -1)
+            return
+        m.u8(output, 2)
+        m.u32(output + 4, settings[pid])
+        m.reg('r0', 0)
+
+    machine.stub(pm.XL_MENU.get, get_setting)
+    machine.stub(0x28d98ce4, lambda m: m.reg('r0', 0))
+    machine.stub(long_press.XL_HANDLER + 4, lambda m: seen.append(m.read(m.reg('r0'), 8)),
+                 code=bytes.fromhex('bde8f083'))
+
+    def event(code, kind):
+        machine.write(EVENT, bytes([1, code, 0, 0]) + struct.pack('<I', kind))
+        machine.call(CODE + symbols['xl_hold_event'], EVENT, OBJ, 0)
+
+    events = []
+    for code in range(17, 25):
+        events.extend((code, kind) for kind in (1, 5, 2, 3))
+    for code in range(9, 17):
+        events.extend((code, kind) for kind in (1, 5, 2))
+    for code, kind in events:
+        event(code, kind)
+    assert [(item[1], struct.unpack_from('<I', item, 4)[0]) for item in seen] == events
+
+
+@pytest.mark.parametrize('physical, action, cc', [(0, 2, 20), (1, 3, 21), (2, 4, 22), (3, 5, 23), (7, 6, 24)])
+def test_xl_long_press_maps_physical_holds_to_virtual_ccs(m4emu, physical, action, cc):
+    code, symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc()}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    holds = [IDS[f'long_press.fs{n}'] for n in range(1, 6)] + [IDS[f'long_press.fs{n}_hold'] for n in (6, 7, 8)]
+    functions = [IDS[f'long_press.fs{n}_function'] for n in range(6, 11)]
+    settings = {21: 0, holds[physical]: action, **{pid: 1 for pid in functions}}
+    seen, controls = [], []
+    manager, controllers = 0x28470000, 0x28480000
+
+    def get_setting(m):
+        pid, output = m.reg('r0'), m.reg('r1')
+        if pid not in settings:
+            m.reg('r0', -1)
+            return
+        m.u8(output, 2)
+        m.u32(output + 4, settings[pid])
+        m.reg('r0', 0)
+
+    machine.stub(pm.XL_MENU.get, get_setting)
+    machine.stub(0x28d98ce4, lambda m: m.reg('r0', 0))
+    machine.stub(0x28d98c0c, lambda m: m.reg('r0', manager))
+    machine.stub(0x28d98c14, lambda m: m.reg('r0', 0))
+    machine.stub(0x28de05ac, lambda m: m.reg('r0', 0))
+    machine.stub(0x28d98c1c, lambda m: m.reg('r0', controllers))
+    machine.stub(0x28e2ae80)
+    machine.stub(0x28e2aef8)
+    machine.stub(0x28de40d0, lambda m: controls.append((m.reg('r0'), m.reg('r1'), m.reg('r2'), m.reg('r3'))))
+    machine.stub(long_press.XL_HANDLER + 4, lambda m: seen.append(m.read(m.reg('r0'), 8)),
+                 code=bytes.fromhex('bde8f083'))
+    machine.u8(manager + 4 + physical * 2, 2)
+
+    def event(kind):
+        key_code = 17 + physical
+        machine.write(EVENT, bytes([1, key_code, 0, 0]) + struct.pack('<I', kind))
+        machine.call(CODE + symbols['xl_hold_event'], EVENT, OBJ, 0)
+
+    event(1)
+    event(5)
+    event(2)
+    assert controls == [(controllers, 11, cc, ON)]
+    assert [(item[1], struct.unpack_from('<I', item, 4)[0]) for item in seen] == [(17 + physical, 2)]
+
+
+def test_xl_hold_to_tuner_withholds_the_press_and_releases_stock(m4emu):
+    code, symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc()}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    hold_id = IDS['long_press.fs8_hold']
+    settings = {21: 0, hold_id: 1}
+    seen, requests = [], []
+
+    def get_setting(m):
+        pid, output = m.reg('r0'), m.reg('r1')
+        if pid not in settings:
+            m.reg('r0', -1)
+            return
+        m.u8(output, 2)
+        m.u32(output + 4, settings[pid])
+        m.reg('r0', 0)
+
+    machine.stub(pm.XL_MENU.get, get_setting)
+    machine.stub(0x28d98ce4, lambda m: m.reg('r0', 0))
+    machine.stub(0x28d98c0c, lambda m: m.reg('r0', 0x28470000))
+    machine.stub(0x28d98c14, lambda m: m.reg('r0', 0))
+    machine.stub(0x28de05ac, lambda m: m.reg('r0', 0))
+    machine.stub(0x28d9919c, lambda m: requests.append('tuner'))
+    machine.stub(long_press.XL_HANDLER + 4, lambda m: seen.append(m.read(m.reg('r0'), 8)),
+                 code=bytes.fromhex('bde8f083'))
+    machine.u8(0x28470000 + 4 + 7 * 2, 2)
+
+    for kind in (1, 5, 2):
+        machine.write(EVENT, bytes([1, 24, 0, 0]) + struct.pack('<I', kind))
+        machine.call(CODE + symbols['xl_hold_event'], EVENT, OBJ, 0)
+    assert requests == ['tuner']
+    assert [(item[1], struct.unpack_from('<I', item, 4)[0]) for item in seen] == [(24, 2)]
+
+
+def test_xl_virtual_snapshot_actions_use_eight_or_native_snapshot_stepper(m4emu):
+    code, symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc()}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    manager, selected = 0x28470000, []
+    machine.stub(0x28d98c34, lambda m: m.reg('r0', manager))
+    machine.stub(0x28de8dcc, lambda m: selected.append((m.reg('r0'), m.reg('r1'))))
+    for action, current, target in ((8, 3, 0), (9, 0, 3)):
+        machine.u8(manager + 0xa03, current)
+        machine.call(CODE + symbols['xl_step_snapshot'], action)
+        assert selected[-1] == (manager, target)
+
+    routed_code, routed_symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc(0x28e50001)}, layout=pm.XL_MENU)
+    routed = m4emu.M4(routed_code, CODE)
+    values = []
+    routed.stub(0x28e50000, lambda m: values.append((m.reg('r0'), m.reg('r1'))))
+    for action in (8, 9):
+        routed.call(CODE + routed_symbols['xl_step_snapshot'], action)
+    assert values == [(69, 8), (69, 9)]
+
+
+@pytest.mark.parametrize('action,current,target', [(11, 0, 1), (11, 3, 0), (12, 0, 3), (12, 2, 1)])
+def test_xl_virtual_mode_actions_wrap_through_stock_modes(m4emu, action, current, target):
+    code, symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc()}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    wrapper = 0x28e80000
+    machine.load(wrapper, bytes.fromhex('20b50d46') + pm.bl(wrapper + 4, CODE + symbols['step_mode']) + bytes.fromhex('20bd'))
+    changes, writes = [], []
+    machine.stub(0x28dd9300, lambda m: changes.append((m.reg('r0'), m.reg('r1'))))
+    machine.stub(0x28e0690c, lambda m: m.reg('r0', 0x28470000))
+    machine.stub(0x28e25d20, lambda m: writes.append((m.reg('r0'), m.reg('r1'), m.u32(m.reg('r2') + 4), m.reg('r3'))))
+    machine.u8(OBJ + 0x4d, current)
+    machine.call(wrapper, action, OBJ)
+    assert changes == [(OBJ, target)]
+    assert writes == [(0x28470000, 21, target, 6)]
+
+
+def test_xl_bypass_assign_labels_cc20_to_24_as_fs9_to_13(m4emu):
+    code, symbols = m4emu.assemble('src/m4/long_press_xl.s', MODS, IDS, inc={
+        'long_press_xl.inc': long_press.xl_long_press_inc()}, layout=pm.XL_MENU)
+    machine = m4emu.M4(code, CODE)
+    buffer = 0x28710000
+    for cc, label in zip(range(20, 25), (b'FS9', b'FS10', b'FS11', b'FS12', b'FS13')):
+        machine.write(buffer, b'CC00\0')
+        machine.call(CODE + symbols['vfs_cc_text'], cc, buffer + 2)
+        assert machine.read(buffer, len(label) + 1) == label + b'\0'
 
 
 @pytest.mark.firmware
@@ -595,6 +809,16 @@ def test_ccs_20_to_24_read_as_the_virtual_footswitches(h, cc, text):
     assert cc_text(h, cc) == text
 
 
+@pytest.mark.parametrize('cc, text', [(20, 'FS9'), (21, 'FS10'), (22, 'FS11'), (23, 'FS12'), (24, 'FS13')])
+def test_xl_ccs_read_as_virtual_footswitches(m4emu, cc, text):
+    code, symbols = m4emu.assemble('src/m4/long_press.s', MODS, IDS,
+                                   inc={'long_press.inc': long_press.long_press_inc(pm.XL_MENU)}, layout=pm.XL_MENU)
+    m = m4emu.M4(code, CODE)
+    m.write(BUF, b'CC' + str(cc).encode() + b'\0' * 7)
+    m.call(CODE + symbols['lp_cc_text'], cc, BUF + 2)
+    assert m.read(BUF, 9).split(b'\0')[0].decode() == text
+
+
 @pytest.mark.parametrize('cc', [0, 4, 19, 25, 82, 127])
 def test_other_ccs_keep_their_numbers(h, cc):
     assert cc_text(h, cc) == f'CC{cc}'
@@ -628,7 +852,7 @@ def test_off_and_other_ccs_keep_the_midi_in_label(h, cc):
 
 def test_each_label_entry_reads_its_callers_node(h, m4emu):
     """At the redraw's label call the MIDI In node is in r5; at the knob refresh's, in r4 (0 when MIDI In is Off)."""
-    code, _ = m4emu.assemble('src/m4/long_press.s', MODS, IDS)
+    code, _ = m4emu.assemble('src/m4/long_press.s', MODS, IDS, inc={'long_press.inc': long_press.long_press_inc()})
     at = lambda name: h.sym[name] & ~1
     assert code[at('lp_label_redraw'):at('lp_label_redraw') + 2] == MOV_R2_R5
     assert code[at('lp_label_refresh'):at('lp_label_refresh') + 2] == MOV_R2_R4

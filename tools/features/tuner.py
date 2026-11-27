@@ -1,8 +1,11 @@
 """Tuner Activation (Hold or Press) and Lock Tuner Settings (Off or On), on a third page of the tuner's own settings (src/m4/tuner.s)."""
+from dataclasses import dataclass, replace
+
 from features import Setting
 import patch_menu as pm
 
 FLAG = 'HX_TUNER'
+XL_PORTED = True
 ORDER = 0
 MENU = False
 SETTINGS = (     # labels and values as src/m4/tuner.s draws them
@@ -40,29 +43,82 @@ KNOB_COLOURS = ((0x28dc6454, 0xffffff), (0x28dc651c, 0x6b6b6b), (0x28dc6534, 0x4
                 (0x28dc6568, 0xb1b1b1))           # (knob, colour), as the stock paints a knob that can be turned
 
 
-def label_inc(label_any=None):
-    return f'.equ LABEL_COLOUR_FN, {(label_any or KNOB_COLOURS[0][0]) | 1:#x}\n'
+@dataclass(frozen=True)
+class TunerLayout:
+    tap_site: int
+    tap_core: int
+    guard: int
+    request: int
+    turn: int
+    reset_ret: int
+    reset_sites: dict
+    next_page: int
+    next_read: int
+    prev_read: int
+    page_store: int
+    dots_read: int
+    page_clamps: tuple
+    page_dots: int
+    paint: int
+    paint_switch: int
+    paint_tbh: int
+    paint_end: int
+    steps: int
+    show: int
+    value_text: int
+    position: int
+    label: int
+    knob_colours: tuple
+
+
+STOMP = TunerLayout(TAP_SITE, TAP_CORE, GUARD, REQUEST_TUNER, TURN_FN, RESET_RET, RESET_SITES, NEXT_PAGE, NEXT_READ,
+                    PREV_READ, PAGE_STORE, DOTS_READ, PAGE_CLAMPS, PAGE_DOTS, PAINT, PAINT_SWITCH, PAINT_TBH, PAINT_END,
+                    STEPS, SHOW, VALUE_TEXT, POSITION, LABEL, KNOB_COLOURS)
+XL = replace(STOMP, tap_site=0x28dd9676, tap_core=0x28d9eed4, guard=0x28d98ce4, request=0x28d9919c,
+             turn=TURN_FN + 0x27b8, reset_ret=RESET_RET + 0x27b8,
+             reset_sites={site + 0x27b8: knob for site, knob in RESET_SITES.items()}, next_page=NEXT_PAGE + 0x27b8,
+             next_read=NEXT_READ + 0x27b8, prev_read=PREV_READ + 0x27b8, page_store=PAGE_STORE + 0x27b8,
+             dots_read=DOTS_READ + 0x5ab4, page_clamps=tuple(site + 0x5ab4 for site in PAGE_CLAMPS),
+             page_dots=PAGE_DOTS + 0x5ab4, paint=PAINT + 0x5ab4, paint_switch=PAINT_SWITCH + 0x5ab4,
+             paint_tbh=PAINT_TBH + 0x5ab4, paint_end=PAINT_END + 0x5ab4, steps=0x28e043fc,
+             show=SHOW + 0x3140, value_text=VALUE_TEXT + 0x3140, position=POSITION + 0x3140, label=LABEL + 0x3140,
+             knob_colours=tuple((fn + 0x3140, colour) for fn, colour in KNOB_COLOURS))
+
+
+def label_inc(label_any=None, layout=STOMP):
+    addresses = {'GUARD': layout.guard, 'REQUEST_TUNER': layout.request, 'TAP_CORE': layout.tap_core,
+                 'TURN_FN_CONT': layout.turn + 4, 'RESET_RET': layout.reset_ret, 'PAINT': layout.paint,
+                 'PAINT_TBH': layout.paint_tbh, 'PAINT_END': layout.paint_end, 'STEPS': layout.steps,
+                 'SHOW': layout.show, 'VALUE_TEXT': layout.value_text, 'POSITION': layout.position, 'LABEL': layout.label,
+                 'NEXT_CONT': layout.next_read + 4, 'PREV_CONT': layout.prev_read + 4, 'STORE_CONT': layout.page_store + 4,
+                 'DOTS_CONT': layout.dots_read + 4}
+    addresses.update({f'RESET{knob}_CONT': site + 4 for site, knob in layout.reset_sites.items()})
+    lines = [f'.equ LABEL_COLOUR_FN, {(label_any or layout.knob_colours[0][0]) | 1:#x}']
+    lines += [f'.equ {name}, {address | 1:#x}' for name, address in addresses.items()]
+    lines += ['.macro TUNER_COLOURS'] + [f'.word {fn | 1:#x}, {colour:#x}' for fn, colour in layout.knob_colours[1:]] + ['.endm']
+    return '\n'.join(lines) + '\n'
 
 
 def apply(p):
+    layout = XL if getattr(p, 'layout', pm.STOMP_MENU).base == pm.XL_MENU.base else STOMP
     lc = p.modules.get(LABEL_COLOR)
-    m = p.module('src/m4/tuner.s', inc={'tuner_label.inc': label_inc(lc and lc['label_any'])})
-    p.own_call(TAP_SITE, TAP_CORE, 'the tap-tempo call', m['tuner_tap'])
-    p.own_entry(TURN_FN, TURN_FN_STOCK, 'the tuner settings knob handler', m['tuner_turn_hook'])
-    p.expect(RESET_RET, b'\x38\xbd', 'the tuner event handler epilogue')
-    for site, knob in RESET_SITES.items():
+    m = p.module('src/m4/tuner.s', inc={'tuner_label.inc': label_inc(lc and lc['label_any'], layout)})
+    p.own_call(layout.tap_site, layout.tap_core, 'the tap-tempo call', m['tuner_tap'])
+    p.own_entry(layout.turn, TURN_FN_STOCK, 'the tuner settings knob handler', m['tuner_turn_hook'])
+    p.expect(layout.reset_ret, b'\x38\xbd', 'the tuner event handler epilogue')
+    for site, knob in layout.reset_sites.items():
         p.expect(site, RESET_STOCK, 'a tuner settings reset case')
         p.put(site, pm.thumb_bw(site, m[f'tuner_reset{knob}']), 'a tuner settings reset case')
-    p.expect(PAINT_SWITCH, PAINT_SWITCH_STOCK, 'the tuner settings\' paint switch')
-    p.put(PAINT_SWITCH, pm.thumb_bw(PAINT_SWITCH, m['tuner_switch']), 'the tuner settings\' paint switch')
-    for site, stock, handler in ((NEXT_READ, PAGE_READ, 'tuner_next_page'), (PREV_READ, PAGE_READ, 'tuner_prev_page'),
-                                 (PAGE_STORE, PAGE_STORE_STOCK, 'tuner_store_page'), (DOTS_READ, DOTS_READ_STOCK, 'tuner_dots')):
+    p.expect(layout.paint_switch, PAINT_SWITCH_STOCK, 'the tuner settings\' paint switch')
+    p.put(layout.paint_switch, pm.thumb_bw(layout.paint_switch, m['tuner_switch']), 'the tuner settings\' paint switch')
+    for site, stock, handler in ((layout.next_read, PAGE_READ, 'tuner_next_page'), (layout.prev_read, PAGE_READ, 'tuner_prev_page'),
+                                 (layout.page_store, PAGE_STORE_STOCK, 'tuner_store_page'), (layout.dots_read, DOTS_READ_STOCK, 'tuner_dots')):
         p.expect(site, stock, 'the tuner settings\' page order')
         p.put(site, pm.thumb_bw(site, m[handler]), 'the tuner settings\' page order')
-    p.expect(NEXT_PAGE, NEXT_PAGE_STOCK, 'the tuner settings\' next page')
-    p.put(NEXT_PAGE, bytes([PAGE - 1, 0x2b]), 'the tuner settings\' next page')
-    for site in PAGE_CLAMPS:
+    p.expect(layout.next_page, NEXT_PAGE_STOCK, 'the tuner settings\' next page')
+    p.put(layout.next_page, bytes([PAGE - 1, 0x2b]), 'the tuner settings\' next page')
+    for site in layout.page_clamps:
         p.expect(site, PAGE_CLAMP_STOCK, 'the tuner settings\' page clamp')
         p.put(site, bytes([PAGE, 0x2b]), 'the tuner settings\' page clamp')
-    p.expect(PAGE_DOTS, PAGE_DOTS_STOCK, 'the tuner settings\' page count')
-    p.put(PAGE_DOTS, bytes([PAGES, 0x20]), 'the tuner settings\' page count')
+    p.expect(layout.page_dots, PAGE_DOTS_STOCK, 'the tuner settings\' page count')
+    p.put(layout.page_dots, bytes([PAGES, 0x20]), 'the tuner settings\' page count')

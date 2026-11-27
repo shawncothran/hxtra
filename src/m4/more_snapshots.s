@@ -3,17 +3,18 @@
 @ recalls the same footswitch's snapshot through the stock select. tools/features/more_snapshots.py places the hooks.
 .syntax unified
 .thumb
-.equ SELECT, 0x28de2f91             @ (manager, index): recalls a snapshot
-.equ RECORD_INIT, 0x28de14b5        @ (manager, record, name): a record's defaults; takes the manager's lock itself
+.include "snapshots.inc"
+.equ SELECT, SNAP_SELECT            @ (manager, index): recalls a snapshot
+.equ RECORD_INIT, SNAP_RECORD_INIT  @ (manager, record, name): a record's defaults; takes the manager's lock itself
 .equ LOCK, 0x28e24c01
 .equ UNLOCK, 0x28e24bb1
-.equ MEMCPY, 0x28e24c79
-.equ MEMSET, 0x28e24b79
-.equ REC, 0x260                     @ a snapshot record
+.equ REC, SNAP_RECORD               @ a snapshot record
+.equ NATIVE, SNAP_NATIVE
+.equ EXTRA, SNAP_EXTRA
 .equ RECS, 0xc                      @ record 0, in the manager
-.equ CUR, 0x743                     @ the current snapshot
-.equ PREV, 0x744                    @ the one before it
-.equ BUSY, 0x9a9                    @ set while select must not run; select returns 0 then
+.equ CUR, SNAP_CUR                  @ the current snapshot
+.equ PREV, SNAP_PREV                @ the one before it
+.equ BUSY, SNAP_BUSY                @ set while select must not run; select returns 0 then
 .equ MANAGER, 0x2812c630
 .equ ICON, 0x2812ade8               @ the top view's snapshot icon (image widget): a camera, its number in a circle
 .equ LABELS, 0x2812a4bc             @ the Home view's footswitch labels in Snapshot mode: the same cameras, 0x24 bytes apart
@@ -21,13 +22,13 @@
 .equ FN_SNAPSHOT, 14                @ snapshot k for footswitch k: Snapshot mode; other modes keep stale cameras in LABELS
 .equ WIDGET_LOCK, 0x28e24971
 .equ WIDGET_UNLOCK, 0x28e24ae9
-.equ REDRAW, 0x28db8509             @ (full, partial): the UI repaints; the layout code ends with (0, 1)
+.equ REDRAW, SNAP_REDRAW            @ (full, partial): the UI repaints; the layout code ends with (0, 1)
 .equ FILL, 0x100017e9               @ (fb, x, y, w, h, colour, anchor)
 .equ TEXT, 0x28db7aa5               @ (fb, text, length, x, y, font, colour, anchor, mode): mode 1 draws only the glyphs' pixels
 .equ CONTROLLERS, 0x741             @ snapshot controllers: 7-byte entries at a record's +0x28, keyed by their first byte
 .equ SWITCHES, 0x742                @ footswitch entries: 9 bytes at +0x1e8, keyed by their first byte
 .equ FILE_KEY, 0x64                 @ bank B's key in the preset file (src/m4/preset_keys.s); stock uses 0..12
-.equ FILE_LEN, 8 + 3 * REC          @ its bin16: "HX6B", version, 3 spare, the three records
+.equ FILE_LEN, 8 + EXTRA * REC      @ its bin16: extension header plus extra records
 .equ DARK, 0x101010                 @ the digit on a lit camera's white circle; black would be the renderer's transparent
 .equ WRAP, 5                        @ in snaps_data: the select on its way is a next or previous past the bank's end
 .equ VALUE, 2                       @ in WRAP instead: the select on its way is CC 69's value, 0..5
@@ -35,16 +36,64 @@
 snaps_select:                       @ a footswitch press's call of select (manager, index)
     adr.w r2, snaps_data
     ldrb r3, [r2, #WRAP]
-    cbnz r3, snaps_wrap
-    cmp r1, #2
+    cbz r3, snaps_select_normal
+    b.w snaps_wrap
+snaps_select_normal:
+    cmp r1, #NATIVE - 1
     bhi snaps_stock
     ldrb.w r2, [r0, #CUR]
     cmp r2, r1
     bne snaps_stock
     ldrb.w r2, [r0, #BUSY]
-    cbz r2, snaps_flip
+    cbnz r2, snaps_stock
+    b.w snaps_flip
 snaps_stock:
     ldr r12, =SELECT
+    bx r12
+
+.thumb_func
+snaps_xl_button:                    @ XL Snapshot-mode button (manager, physical index): keep the mode handler's frame intact
+    push {r4-r7, lr}
+    sub sp, #4
+    mov r4, r0
+    mov r5, r1
+    cmp r5, #NATIVE - 1
+    bhi snaps_xl_button_stock
+    adr.w r2, snaps_data
+    ldrb r6, [r2]
+    mov r0, r4
+    mov r1, r5
+    bl snaps_select
+    adr.w r2, snaps_data
+    ldrb r3, [r2]
+    cmp r3, r6
+    beq snaps_xl_button_done
+    movs r3, #1
+    strb r3, [r2, #4]
+    b snaps_xl_button_done
+snaps_xl_button_stock:
+    mov r0, r4
+    mov r1, r5
+    ldr r3, =SELECT
+    blx r3
+snaps_xl_button_done:
+    add sp, #4
+    pop {r4-r7, pc}
+
+.thumb_func
+snaps_xl_mode_branch:              @ setting 67's stock fallback would leave Snapshot mode after a bank-flip button press
+    adr.w r1, snaps_data
+    ldrb.w r12, [r1, #4]
+    movs r2, #0
+    strb r2, [r1, #4]
+    cmp r3, #0
+    bne snaps_xl_mode_return
+    cmp r12, r2
+    bne snaps_xl_mode_return
+    ldr r12, =0x28dd9891
+    bx r12
+snaps_xl_mode_return:
+    ldr r12, =0x28dd952f
     bx r12
 
 snaps_cc_select:                    @ MIDI CC 69's call of select (manager, index): stock, bar a value 0..5 or a next or previous past the bank's end
@@ -61,7 +110,7 @@ snaps_wrap:                        @ (manager, index, snaps_data): the other ban
     ldrb r3, [r2, #1]
     cmp r3, #0
     beq snaps_stock
-    cmp r1, #2
+    cmp r1, #NATIVE - 1
     bhi snaps_stock
 snaps_cc_cross:
     ldrb.w r3, [r0, #BUSY]
@@ -74,9 +123,9 @@ snaps_value:                        @ (manager, value, snaps_data): 0..2 snapsho
     movs r3, #0
     strb r3, [r2, #WRAP]
     ldrb r3, [r2]
-    cmp r1, #3
+    cmp r1, #NATIVE
     itt hs
-    subhs r1, #3
+    subhs r1, #NATIVE
     eorhs r3, r3, #1                @ r3 set: the value's bank is not the live one
     cmp r3, #0
     beq snaps_stock
@@ -84,7 +133,7 @@ snaps_value:                        @ (manager, value, snaps_data): 0..2 snapsho
 
 snaps_next_cur:                    @ in place of footswitch next's read of the current snapshot (manager): marks a wrap past 3 or 6
     ldrb.w r0, [r0, #CUR]
-    cmp r0, #2
+    cmp r0, #NATIVE - 1
     beq snaps_mark
     bx lr
 
@@ -94,12 +143,31 @@ snaps_prev_cur:                     @ in place of footswitch previous's read: ma
     bx lr
 
 snaps_cc_value:                     @ in place of CC 69's manager getter before its select of the value: marks it
+.if SNAP_XL
+    movs r2, #VALUE
+    b snaps_manager_mark
+.else
     ldr r0, =MANAGER
     movs r2, #VALUE
     b snaps_mark_as
+.endif
 
 snaps_cc_wrap:                      @ in place of CC 69's manager getter where next leaves 3 or previous leaves 1: marks the wrap
+.if SNAP_XL
+    movs r2, #1
+    b snaps_manager_mark
+.else
     ldr r0, =MANAGER
+    movs r2, #1
+    b snaps_mark_as
+.endif
+.if SNAP_XL
+snaps_manager_mark:
+    adr.w r1, snaps_data
+    strb r2, [r1, #WRAP]
+    ldr r3, =SNAP_MANAGER_GET
+    bx r3
+.endif
 snaps_mark:
     movs r2, #1
 snaps_mark_as:
@@ -119,9 +187,8 @@ snaps_cross:                        @ (manager, index, the index being left)
     cbnz r0, snaps_ready
     adr.w r0, snaps_shadow          @ bank B since the preset loaded: three default records, which select fills from the sound
     movs r1, #0
-    movw r2, #3 * REC
-    ldr r3, =MEMSET
-    blx r3
+    movw r2, #EXTRA * REC
+    bl snaps_zero_n
     movs r7, #0
 snaps_init:
     adr.w r1, snaps_shadow
@@ -133,16 +200,20 @@ snaps_init:
     ldr r3, =RECORD_INIT
     blx r3
     adds r7, #1
-    cmp r7, #3
+    cmp r7, #EXTRA
     bne snaps_init
     movs r0, #1
     strb r0, [r6, #1]
 snaps_ready:
+.if !SNAP_XL
     add.w r0, r4, #4
     ldr r3, =LOCK
     blx r3
+.endif
     bl snaps_swap
+.if !SNAP_XL
     bl snaps_match
+.endif
     cmp r5, #0                      @ j, another index: its record stands in for the old one while select runs
     ite eq
     moveq r7, #1
@@ -160,31 +231,44 @@ snaps_ready:
     bl snaps_copy
     ldrb.w r8, [r4, #PREV]
     strb.w r7, [r4, #CUR]           @ so select sees a change from j: it diffs, or copies into an unused record, from there
+.if !SNAP_XL
     add.w r0, r4, #4
     ldr r3, =UNLOCK
     blx r3
+.endif
+.if SNAP_XL
+    ldrb r0, [r6]
+    eor r0, r0, #1
+    strb r0, [r6]
+.endif
     mov r0, r4
     mov r1, r5
     ldr r3, =SELECT
     blx r3
     mov r10, r0
+.if !SNAP_XL
     add.w r0, r4, #4
     ldr r3, =LOCK
     blx r3
+.endif
     mov r0, r9
     adr.w r1, snaps_temp
     bl snaps_copy
     strb.w r8, [r4, #PREV]
     ldrb r0, [r6]
+.if !SNAP_XL
     eor r0, r0, #1
     strb r0, [r6]
+.endif
     cbnz r0, snaps_flipped
     movs r1, #3
     strb r1, [r6, #3]               @ back in bank A: the top icon (bit 0) and the labels (bit 1) drawn again over bank B's numbers
 snaps_flipped:
+.if !SNAP_XL
     add.w r0, r4, #4
     ldr r3, =UNLOCK
     blx r3
+.endif
     movs r0, #0
     movs r1, #1
     ldr r3, =REDRAW
@@ -194,10 +278,16 @@ snaps_flipped:
 
 snaps_loaded:                       @ before the preset parser fills the records: bank A, and bank B from the file or anew
     adr.w r0, snaps_data
+.if SNAP_XL
+    movs r1, #0
+    strb r1, [r0]
+    strb r1, [r0, #1]
+.else
     ldrb r1, [r0]
     add.w r1, r1, r1, lsl #1
     lsls r1, r1, #24                @ bank B was live: the cameras must be drawn again (byte 3)
     str r1, [r0]
+.endif
     ldrb r1, [r0, #6]
     cbnz r1, snaps_loaded_b
     bx lr
@@ -207,10 +297,9 @@ snaps_loaded_b:                     @ the file's bank B, read with its section 1
     movs r2, #1
     strb r2, [r0, #1]
     adr.w r0, snaps_shadow
-    add.w r1, r0, #3 * REC
-    movw r2, #3 * REC
-    ldr r3, =MEMCPY
-    bx r3
+    add.w r1, r0, #EXTRA * REC
+    movw r2, #EXTRA * REC
+    b snaps_copy_n
 
 snaps_match:                        @ (r4 the manager) after a swap: the incoming bank's controller and footswitch entries as the
     push {r4-r8, lr}                @ outgoing bank's, which were live, wherever their keys differ (an assignment made meanwhile)
@@ -224,7 +313,7 @@ snaps_match:                        @ (r4 the manager) after a swap: the incomin
     it hi
     movhi.w r8, #11
     adr.w r5, snaps_shadow
-    movs r6, #3
+    movs r6, #EXTRA
 snaps_match_record:
     add.w r0, r4, #0x28
     add.w r1, r5, #0x28
@@ -271,7 +360,13 @@ snaps_matched:
 snaps_key_write:                    @ preset_keys.s's writer (stream): bank B after the map, as key 0x64; -> the keys written
     push {r4, r5, r6, lr}
     mov r4, r0
+.if SNAP_XL
+    ldr r3, =SNAP_MANAGER_GET
+    blx r3
+    add.w r5, r0, #RECS
+.else
     ldr r5, =MANAGER + RECS         @ bank B live: the manager's records
+.endif
     adr.w r6, snaps_data
     ldrb r0, [r6]
     cbnz r0, snaps_key_put
@@ -283,7 +378,7 @@ snaps_key_put:
     movs r2, #12
     bl snaps_file_put
     mov r1, r5
-    movw r2, #3 * REC
+    movw r2, #EXTRA * REC
     bl snaps_file_put
     movs r0, #1
 snaps_key_written:
@@ -324,10 +419,9 @@ snaps_key_head_byte:
     bne snaps_key_head_byte
     adds r1, #8
     adr.w r0, snaps_shadow
-    add.w r0, r0, #3 * REC
-    movw r2, #3 * REC
-    ldr r3, =MEMCPY
-    blx r3
+    add.w r0, r0, #EXTRA * REC
+    movw r2, #EXTRA * REC
+    bl snaps_copy_n
     movs r1, #1
     strb r1, [r6, #6]
 snaps_key_none:
@@ -472,7 +566,14 @@ snaps_camera_done:
     pop {r4-r7, pc}
 
 snaps_saving:                       @ before a preset serializer: bank A live, as a load takes the blocks' live values for its snapshot
+.if SNAP_XL
+    push {r3, lr}
+    ldr r3, =SNAP_MANAGER_GET
+    blx r3
+    pop {r3, lr}
+.else
     ldr r0, =MANAGER
+.endif
     adr.w r1, snaps_data
     ldrb r2, [r1]
     cbz r2, snaps_none
@@ -483,7 +584,14 @@ snaps_none:
     bx lr
 
 snaps_saved:                        @ after it: bank B again
+.if SNAP_XL
+    push {r3, lr}
+    ldr r3, =SNAP_MANAGER_GET
+    blx r3
+    pop {r3, lr}
+.else
     ldr r0, =MANAGER
+.endif
     adr.w r1, snaps_data
     ldrb r2, [r1, #2]
     cmp r2, #0
@@ -503,11 +611,138 @@ snaps_flip_now:                     @ (manager): a flip on the current snapshot;
     strb.w r6, [r4, #BUSY]
     pop {r4-r6, pc}
 
+.if SNAP_XL
+.thumb_func
+snaps_xl_load_finish:               @ XL preset-load epilogue: commit a staged extra bank only on success
+    cmp r0, #0
+    blt snaps_xl_load_return
+    push {r0, lr}
+    bl snaps_loaded
+    pop {r0, lr}
+snaps_xl_load_return:
+    pop.w {r4-r8, pc}
+
+.thumb_func
+snaps_xl_cc69:                      @ the XL CC handler: values 0..7 select, 8/9 step, other values stay stock
+    push {r0-r7, lr}
+    sub sp, #12
+    mov r4, r1
+    cmp r4, #9
+    bhi snaps_xl_cc_stock
+    ldr r3, =SNAP_MANAGER_GET
+    blx r3
+    mov r5, r0
+    cmp r4, #8
+    blo snaps_xl_cc_value
+    ldrb r6, [r5, #CUR]
+    adr.w r3, snaps_data
+    ldrb r7, [r3]
+    cmp r7, #0
+    it ne
+    addne r6, #NATIVE
+    cmp r4, #8
+    bne snaps_xl_cc_previous
+    adds r6, #1
+    cmp r6, #2 * NATIVE
+    it hs
+    movhs r6, #0
+    b snaps_xl_cc_step
+snaps_xl_cc_previous:
+    cbnz r6, snaps_xl_cc_previous_nonzero
+    movs r6, #2 * NATIVE - 1
+    b snaps_xl_cc_step
+snaps_xl_cc_previous_nonzero:
+    subs r6, #1
+snaps_xl_cc_step:
+    lsrs r2, r6, #2
+    cmp r2, r7
+    ite ne
+    movne r2, #1
+    moveq r2, #0
+    adr.w r3, snaps_data
+    strb r2, [r3, #WRAP]
+    and r1, r6, #NATIVE - 1
+    mov r0, r5
+    bl snaps_cc_select
+    b snaps_xl_cc_done
+snaps_xl_cc_value:
+    adr.w r3, snaps_data
+    ldrb r2, [r3, #1]
+    cmp r4, #NATIVE
+    blo snaps_xl_cc_value_ready
+    cbnz r2, snaps_xl_cc_value_ready
+    ldrb r1, [r5, #CUR]
+    mov r0, r5
+    bl snaps_select
+snaps_xl_cc_value_ready:
+    adr.w r3, snaps_data
+    movs r2, #VALUE
+    strb r2, [r3, #WRAP]
+    mov r0, r5
+    mov r1, r4
+    bl snaps_cc_select
+snaps_xl_cc_done:
+    add sp, #12
+    pop {r0-r7, lr}
+    ldr r12, =SNAP_CC_DONE
+    bx r12
+snaps_xl_cc_stock:
+    add sp, #12
+    pop {r0-r7, lr}
+    cmp r1, #3
+    ite ls
+    ldrls r12, =SNAP_CC_DIRECT
+    ldrhi r12, =SNAP_CC_REMAINDER
+    bx r12
+
+.thumb_func
+snaps_xl_play_set:                  @ (widget, original image): substitute the matching 5..8 tile while bank B is live
+    push {r2, lr}
+    bl snaps_xl_play_image
+    pop {r2, lr}
+    ldr r12, =0x28e2ade1
+    bx r12
+
+.thumb_func
+snaps_xl_play_lookup:              @ the stock indexed image lookup, then the same bank-B substitution
+    ldr.w r1, [r3, r6, lsl #2]
+    push {r0, r2, r3, r12, lr}
+    sub sp, #4
+    bl snaps_xl_play_image
+    add sp, #4
+    pop {r0, r2, r3, r12, pc}
+
+snaps_xl_play_image:
+    adr.w r2, snaps_data
+    ldrb r2, [r2]
+    cbz r2, snaps_xl_play_done
+    adr.w r2, snaps_xl_play_originals
+    movs r3, #0
+snaps_xl_play_find:
+    ldrh.w r12, [r2, r3, lsl #1]
+    cmp r1, r12
+    beq snaps_xl_play_match
+    adds r3, #1
+    cmp r3, #24
+    bne snaps_xl_play_find
+snaps_xl_play_done:
+    bx lr
+snaps_xl_play_match:
+    adr.w r2, snaps_xl_play_variants
+    ldrh.w r1, [r2, r3, lsl #1]
+    bx lr
+.balign 4
+snaps_xl_play_originals:
+    XL_PLAY_ORIGINALS
+snaps_xl_play_variants:
+    XL_PLAY_VARIANTS
+.endif
+
 snaps_swap:                         @ the manager's three records and snaps_shadow trade places (r4 the manager)
     push {r4-r6, lr}
     add.w r4, r4, #RECS
     adr.w r5, snaps_shadow
-    movs r6, #3
+    movs r6, #EXTRA
 snaps_swap1:
     adr.w r0, snaps_temp
     mov r1, r4
@@ -532,8 +767,25 @@ snaps_record:                       @ (index) -> its record in the manager (r4)
 
 snaps_copy:                         @ (to, from): a record
     mov.w r2, #REC
-    ldr r3, =MEMCPY
-    bx r3
+snaps_copy_n:                       @ (to, from, byte length), aligned to words
+    lsrs r2, #2
+    cbz r2, snaps_copy_done
+snaps_copy_word:
+    ldr r3, [r1], #4
+    str r3, [r0], #4
+    subs r2, #1
+    bne snaps_copy_word
+snaps_copy_done:
+    bx lr
+
+snaps_zero_n:                       @ (address, value, byte length), used for the zeroed bank shadow
+    lsrs r2, #2
+    movs r3, #0
+snaps_zero_word:
+    str r3, [r0], #4
+    subs r2, #1
+    bne snaps_zero_word
+    bx lr
 
 .ltorg
 .balign 4
@@ -545,19 +797,34 @@ snaps_images:                       @ the stock cameras by style, then number: I
     .hword 0x1a0, 0x71, 0x10f, 0x156, 0x105, 0x4f, 0x13, 0x202, 0x12a
 .balign 4
 snaps_names:                        @ bank B's default names, 16 bytes apart
+.if SNAP_XL
+    .ascii "SNAPSHOT 5"
+    .space 6
+    .ascii "SNAPSHOT 6"
+    .space 6
+    .ascii "SNAPSHOT 7"
+    .space 6
+    .ascii "SNAPSHOT 8"
+    .space 6
+.else
     .ascii "SNAPSHOT 4"
     .space 6
     .ascii "SNAPSHOT 5"
     .space 6
     .ascii "SNAPSHOT 6"
     .space 6
+.endif
 snaps_file_head:                    @ key 0x64, bin16 of FILE_LEN (big-endian), "HX6B", version 1, 3 spare
+.if SNAP_XL
+    .byte FILE_KEY, 0xc5, FILE_LEN >> 8, FILE_LEN & 0xff, 'H', 'X', '8', 'B', 1, 0, 0, 0
+.else
     .byte FILE_KEY, 0xc5, FILE_LEN >> 8, FILE_LEN & 0xff, 'H', 'X', '6', 'B', 1, 0, 0, 0
+.endif
 snaps_data:                         @ 0 bank B live, 1 snaps_shadow holds bank B, 2 flipped to bank A for a save, 3 cameras to redraw,
-    .word 0, 0                      @ 4 spare, 5 WRAP, 6 bank B read from a file, 7 spare
+    .word 0, 0                      @ 4 XL mode guard, 5 WRAP, 6 bank B read from a file, 7 spare
 snaps_temp:
     .space REC
 snaps_shadow:                       @ the bank not live: three records as the manager's
-    .space 3 * REC
+    .space EXTRA * REC
 snaps_staged:                       @ bank B as read from a preset file, until the preset's snapshots are parsed
-    .space 3 * REC
+    .space EXTRA * REC

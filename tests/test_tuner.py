@@ -1,15 +1,17 @@
 """tools/features/tuner.py and src/m4/tuner.s: Tuner Activation and Lock Tuner Settings on a third page of the tuner's settings, run
 in unicorn (the tap, the page's paint, knob turns and presses, Lock On everywhere else, and the hooks around them), and the firmware."""
 import hashlib
+import os
 import struct
 
 import pytest
 
 import features
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
-from features import tuner
-from firmware import assert_virtual, built, built_e0, reader
+from features import label_color, splash, tuner
+from firmware import assert_virtual, branch_target, built, built_e0, reader
 
 TUNER_BEFORE_LABEL_COLOR = '8899a7604edc19a027a246e7cefd6de4'     # tuner.s of f7d0a6c, the stock label colour written in
 MODS = features.load()
@@ -29,27 +31,28 @@ def cstr(m, va):
 class Page:
     """tuner.s in unicorn: settings {ID: value} behind GET_VALUE and the engine's store, the view at VIEW on page `page`."""
 
-    def __init__(self, m4emu, page=tuner.PAGE):
-        code, sym = m4emu.assemble('src/m4/tuner.s', MODS, IDS, VIRT_SET, inc={'tuner_label.inc': tuner.label_inc()})
+    def __init__(self, m4emu, page=tuner.PAGE, layout=tuner.STOMP, menu_layout=pm.STOMP_MENU):
+        code, sym = m4emu.assemble('src/m4/tuner.s', MODS, IDS, VIRT_SET,
+                                   inc={'tuner_label.inc': tuner.label_inc(layout=layout)}, layout=menu_layout)
         self.at = {k: CODE + v for k, v in sym.items()}
         self.m = m = m4emu.M4(code, CODE)
         self.settings, self.written, self.steps, self.guard = {}, [], 0, 0
-        m.stub(pm.GET_VALUE, self._get)
+        m.stub(menu_layout.get, self._get)
         m.stub(VIRT_SET, self._set)
-        m.stub(tuner.STEPS, lambda m: m.reg('r0', self.steps))
-        m.stub(tuner.GUARD, lambda m: m.reg('r0', self.guard))
-        for fn in (tuner.REQUEST_TUNER, tuner.TAP_CORE):
+        m.stub(layout.steps, lambda m: m.reg('r0', self.steps))
+        m.stub(layout.guard, lambda m: m.reg('r0', self.guard))
+        for fn in (layout.request, layout.tap_core):
             m.stub(fn)
-        for fn in (tuner.PAINT, tuner.SHOW, tuner.VALUE_TEXT, tuner.POSITION, tuner.LABEL, *COLOURS):
+        for fn in (layout.paint, layout.show, layout.value_text, layout.position, layout.label, *(fn for fn, _ in layout.knob_colours)):
             m.stub(fn)
-        for fn in (tuner.PAINT_TBH, tuner.PAINT_END):
+        for fn in (layout.paint_tbh, layout.paint_end):
             m.stub(fn, code=struct.pack('<H', 0xbd10))                 # pop {r4,pc}: what via() pushed, as the paint's own epilogue
-        for fn in (tuner.RESET_RET, *(site + 4 for site in tuner.RESET_SITES)):
+        for fn in (layout.reset_ret, *(site + 4 for site in layout.reset_sites)):
             m.stub(fn, code=struct.pack('<H', 0xbd38))                 # pop {r3,r4,r5,pc}, as the event handler's epilogue
-        m.stub(tuner.TURN_FN_CONT, code=struct.pack('<H', 0xbdf8))     # pop {r3-r7,pc}: the stock turn, after the moved prologue
-        for fn in (tuner.NEXT_READ + 4, tuner.PREV_READ + 4, tuner.DOTS_READ + 4):
+        m.stub(layout.turn + 4, code=struct.pack('<H', 0xbdf8))
+        for fn in (layout.next_read + 4, layout.prev_read + 4, layout.dots_read + 4):
             m.stub(fn, code=struct.pack('<H', 0xbd10))                 # pop {r4,pc}
-        m.stub(tuner.PAGE_STORE + 4, code=struct.pack('<H', 0xbd30))   # pop {r4,r5,pc}
+        m.stub(layout.page_store + 4, code=struct.pack('<H', 0xbd30))
         self.page(page)
 
     def _get(self, m):
@@ -114,6 +117,43 @@ def test_tap_in_press_mode_asks_for_the_tuner_as_the_stock_hold_does(m4emu, guar
     t.m.call(t.at['tuner_tap'], 11, 22, 33, 44)
     assert [args[0] for args in t.m.calls(tuner.GUARD)] == [5]
     assert len(t.m.calls(tuner.REQUEST_TUNER)) == opened and t.m.calls(tuner.TAP_CORE) == []
+
+
+def test_xl_tuner_handlers_preserve_stock_and_control_settings(m4emu):
+    t = Page(m4emu, layout=tuner.XL, menu_layout=pm.XL_MENU)
+    t.m.call(t.at['tuner_tap'], 11, 22, 33, 44)
+    assert [args[:4] for args in t.m.calls(tuner.XL.tap_core)] == [(11, 22, 33, 44)]
+    t.settings[ACTIVATE] = 1
+    t.m.call(t.at['tuner_tap'], 11, 22, 33, 44)
+    assert [args[0] for args in t.m.calls(tuner.XL.guard)] == [5]
+    assert len(t.m.calls(tuner.XL.request)) == 1
+    t.m.call(t.at['tuner_paint'], VIEW)
+    assert t.painted(tuner.XL.show) == [(0, 1), (1, 1), (2, 0)]
+    assert t.turn(1, 1) == 1 and t.written[-1] == (LOCK, 2, 1)
+    t.page(0)
+    assert t.turn(0, 1) == 1 and t.press(0) == 1
+
+
+@pytest.mark.firmware
+def test_xl_tuner_hooks_and_view_match_stock():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    stock = reader(load(0))
+    tuner_name = struct.unpack('<I', stock(0x28e2b4d4, 4))[0]
+    assert stock(tuner_name, 13) == b'gTunerViewID\0'
+    assert branch_target(0x28dda198, stock(0x28dda198, 4)) == tuner.XL.request
+    assert stock(tuner.XL.tap_site, 4) == pm.thumb_bw(tuner.XL.tap_site, tuner.XL.tap_core)
+    entries, enabled = pm.menu_entries(load, [label_color, tuner, splash],
+                                       {'HX_TUNER': '1', 'HX_LABEL_COLOR': '1'}, IDS, layout=pm.XL_MENU)
+    assert tuner in enabled and label_color in enabled
+    read = reader(entries[0])
+    for site in (tuner.XL.tap_site, tuner.XL.turn, *tuner.XL.reset_sites, tuner.XL.paint_switch,
+                 tuner.XL.next_read, tuner.XL.prev_read, tuner.XL.page_store, tuner.XL.dots_read):
+        assert branch_target(site, read(site, 4)) >= pm.XL_MENU.base
+    assert read(tuner.XL.page_dots, 2) == bytes([tuner.PAGES, 0x20])
 
 
 @pytest.mark.parametrize('activate, lock', [(0, 0), (1, 1), (1, 0)])
