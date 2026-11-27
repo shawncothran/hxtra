@@ -517,7 +517,7 @@ def test_comp_patch_refuses_a_second_run(comp_patched):
 
 GR_BUILT_MD5 = {
     'HX_GR': '29240a024058216e8d300c83b5c5f0df',
-    'HX_GR HX_CLICK': '36cc9538f24eb29ce99abe5cc06365ed',    # patch_click.py adds a model, which would drop knobs written before it
+    'HX_GR HX_CLICK': 'a3c232807c6f14f5de43d20a26e794d6',    # patch_click.py adds a model, which would drop knobs written before it
 }
 
 

@@ -553,7 +553,7 @@ def add_model_entry0(e0, src_name_idx, new_name_idx, display_name, short_name=No
          Preamp's one-item "Mic": the category's subcategory count + 1, the name,
          a one-item list (data only, no code changes). With `src_category`, the folder
          may be in another category: the source's item from src_category's lists goes
-         there instead (an effect under Looper keeps its own block kind).
+         there instead (an effect in another category's folder keeps its own block kind).
       All relocated tables are appended to the end of seg[6] (at 0x28e3fadc+), which is
       unused SDRAM well below the bootloader's 0x29f00000 ceiling."""
     e0 = bytearray(e0)

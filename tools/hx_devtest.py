@@ -340,9 +340,9 @@ class Unit:
 
 def named(text, name):
     """A browser line is name: whole, so Amp is not Amp+Cab, after the icon's bullet and the model's DSP share as Vision reads
-    them ('• ', '00: ')."""
+    them ('• ', '00: '), and Volume/Pan's bars icon ('ull •', 'ull1 ')."""
     t, n = norm(text), norm(name)
-    return t.endswith(n) and len(t) - len(n) <= 4 and not any(c.isalpha() for c in t[:len(t) - len(n)])
+    return t.endswith(n) and len(t) - len(n) <= 4 and all(not c.isalpha() or c in 'uli' for c in t[:len(t) - len(n)])
 
 
 def knob_under(x):
@@ -763,13 +763,13 @@ def t_more_snapshots(u):
         u.home()
 
 
-@case('metronome', 'Metronome: Looper > Metronome > Metronome adds the block, Time 1/4, Level -14.0 dB, Accent Off')
+@case('metronome', 'Metronome: Volume/Pan > Metronome > Metronome adds the block, Time 1/4, Level -14.0 dB, Accent Off')
 def t_metronome(u):
     at = u.preset()
     try:
         u.empty_slot()
         u.press('knob5', settle=0.8)
-        u.browse('Looper', 'Metronome', 'Metronome')
+        u.browse('Volume/Pan', 'Metronome', 'Metronome')
         u.see('metronome', (0, 115, 320, 30), what='the Metronome block in the Edit view')
         for knob, want in ((1, '1/4'), (2, '-14.0dB'), (3, 'Off')):
             if norm(u.value(knob)) != norm(want):
@@ -801,7 +801,7 @@ def t_metronome_bypass(u):
     try:
         u.empty_slot()
         u.press('knob5', settle=0.8)
-        u.browse('Looper', 'Metronome', 'Metronome')
+        u.browse('Volume/Pan', 'Metronome', 'Metronome')
         u.see('metronome', (0, 115, 320, 30), what='the Metronome block in the Edit view')
         u.both_pages()
         u.see('menu', (0, 120, 160, 30), what='the Menu')

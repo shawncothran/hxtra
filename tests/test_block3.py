@@ -129,8 +129,8 @@ def test_build_py_kernel_takes_the_slot_count():
 # ---- whole builds with each slot count, pinned as tests/test_firmware.py pins the default one
 
 SLOTS_BUILT_MD5 = {
-    'HX_NAM_SLOTS=1 HX_GR HX_CLICK HX_FX_GATE': '070b4bf804d3c267fe82a694f471f245',
-    'HX_NAM_SLOTS=0 HX_GR HX_CLICK HX_FX_GATE HX_REAL_NAMES': 'aae9c89423bd774c1261406d085a65ff',     # no NAM A2 Lite: no kernel, patch_menu.py on the stock image
+    'HX_NAM_SLOTS=1 HX_GR HX_CLICK HX_FX_GATE': '6ded235936dab049eb6e25fd3d92b887',
+    'HX_NAM_SLOTS=0 HX_GR HX_CLICK HX_FX_GATE HX_REAL_NAMES': '1fb6fe4d415542523f993e7206a60424',     # no NAM A2 Lite: no kernel, patch_menu.py on the stock image
     'HX_NAM_SLOTS=0 HX_GR HX_FX_GATE': 'b36359b456bbfaac5d5af50775668cf7',               # no add-model before patch_comp: its strings grow at the tail
     'HX_NAM_SLOTS=0 HX_GR HX_GATE_SC': 'fb1c893834d3deccd943420a0ebe8bec',
     'HX_NAM_SLOTS=0 HX_FX_GATE HX_GATE_SC': '389dd4985d1234eca9b2b6022be112a9',      # patch_sidechain.py's strings, after patch_gate.py's

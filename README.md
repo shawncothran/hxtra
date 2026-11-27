@@ -169,7 +169,7 @@ The meter also shows while you edit the compressor, so you can dial in Threshold
 
 ### <img src="docs/assets/icons/metronome.svg" width="35" height="28" align="top" alt=""> Metronome
 
-*New block: Looper › Metronome*
+*New block: Volume/Pan › Metronome*
 
 - **Time** (a note value, synced to the tempo): the beat, as a delay's Time.
 - **Level** (−60 … +6 dB): the click's volume.

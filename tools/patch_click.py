@@ -4,7 +4,7 @@
 usage: patch_click.py <in .hxf | L6IA> <out .hxf | L6IA> [--donor stock.hxf]
 
 Run after tools/patch_amp.py patch (build.py does it for HX_CLICK=1 builds). It adds:
-  - the model Looper > Metronome > Metronome (Entries 0, 3, 4; preset ID 181): a copy
+  - the model Volume/Pan > Metronome > Metronome (Entries 0, 3, 4; preset ID 181): a copy
     of the mono effect host whose one member is the primitive 0x0128, with the knobs Time,
     Level, Accent and Thru, and Time's tempo sync (Time's note list SyncSelect1 and its
     switch TempoSync1, hidden as on every stock delay);
@@ -36,7 +36,7 @@ PRESET_ID = 181                     # fixed for ever: presets store it
 DSP_COST = 50
 CLONE = 'HD2_Tremolo60sBiasTremMono'   # a mono modulation with four knobs and a synced pair: no trails, as delays have
 CATEGORY = 5                        # Modulation: the source's, so the block stays a plain effect
-BROWSER = 18                        # Looper: where the browser lists it, a folder beside Mono and Stereo
+BROWSER = 16                        # Volume/Pan: where the browser lists it, a folder beside Mono and Stereo
 HOST = 'HD2_VolPanVolMono'
 PRIM = (0x0128, 0x200050)           # kit_patch_amp.UNUSED_SHARC_PRIMS' second: NAM has the first
 INSTANCE = {'dm_words': 0x91, 'pm_words': 0x0d, 'sdram_words': 0}
@@ -227,7 +227,7 @@ def add_click(l6ia_bytes, log=print):
     row = kit._e0_vaddr_to_foff(segs, t2 + 44 * (n2 - 1), 44)
     assert struct.unpack_from('<I', new_e0, row)[0] == m['words'][2]
     struct.pack_into('<3I', new_e0, row + 24, N_SHOWN, len(params), len(params))   # the synced pair hidden
-    log(f"[+] Entry 0: preset_id {pid}, dsp_cost {cost}, Looper > {FOLDER}")
+    log(f"[+] Entry 0: preset_id {pid}, dsp_cost {cost}, Volume/Pan > {FOLDER}")
 
     entries = l6ia.parse(l6ia_bytes)
     e2_raw = l6ia_bytes[entries[2]['payload_off']: entries[2]['payload_off'] + entries[2]['payload_len']]

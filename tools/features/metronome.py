@@ -1,6 +1,6 @@
-"""Metronome: how the Metronome block (tools/patch_click.py, HX_CLICK=1) looks and assigns. In the signal flow it takes the teal pictures of
-Volume/Pan, lit when on, dim when off (src/m4/metronome.s), and its block category is Metronome, with Icon_Tempo. Bypass Assign,
-controller assignment and the footswitches treat it as a plain effect, not as the looper its browser category makes it."""
+"""Metronome: how the Metronome block (tools/patch_click.py, HX_CLICK=1) looks and assigns. Listed under Volume/Pan, it takes that
+category's teal pictures in the signal flow, lit when on, dim when off, and its block category is Metronome, with Icon_Tempo. Added from
+the browser, it stays off FS5, where a Volume/Pan block goes for an expression pedal's toe switch."""
 import struct
 
 import image_store
@@ -9,9 +9,6 @@ import patch_menu as pm
 FLAG = 'HX_CLICK'
 WEB = 'dsp'
 
-# Looper's slot category (0x12) draws the looper's grey pictures with the looper's on/off, so the Metronome gets Volume/Pan's
-SLOT_CATEGORY, SLOT_CATEGORY_STOCK = 0x28dd3042, bytes.fromhex('9df8 1020')    # ldrb.w r2, [sp, #0x10]
-
 # A model without Entry 3 meta 'category' is block category 0x19, Unknown, otherwise only app, harness and mic models
 CATEGORIES, METRONOME = 0x28e2815c, 0x19    # 0x2c-byte records {name[0x11], short[0xb], colour, dim colour, icon, icon off}
 UNKNOWN_STOCK = bytes.fromhex('556e6b6f776e0000000000000000000000556e6b6f776e00000000008080800080808000de000000de000000')
@@ -19,20 +16,9 @@ NAME = b'Metronome'                 # tools/patch_click.py DISPLAY
 COLOURS = (0x3cceb5, 0x21665d)      # Volume, Send, Return and FX Loop's
 ICON_OFF_DIMMED = 0.39              # Icon_Tempo has no off picture: dimmed as the strip icons are
 
-# Its browser category is Looper's (0x12), and these loads feed the firmware's looper tests: hide Bypass Assign's MIDI In, keep its
-# footswitch knob on None, refuse a MIDI CC bypass, run a looper on a footswitch press, drop its assignments on a block change.
-# (site, its stock ldrb.w reg, [sp, #off], the module's stand-in, what the site is)
-LOOPER_TESTS = (
-    (0x28dbb352, '9df84830', 'metronome_cat_r3_48', 'Bypass Assign redraw: the footswitch knob scale'),
-    (0x28dbb644, '9df84830', 'metronome_cat_r3_48', 'Bypass Assign redraw: MIDI In shown'),
-    (0x28dbbc64, '9df82030', 'metronome_cat_r3_20', 'Bypass Assign knob refresh: MIDI In shown'),
-    (0x28dbc186, '9df82030', 'metronome_cat_r3_20', 'Bypass Assign turn: a footswitch down'),
-    (0x28dbc200, '9df82030', 'metronome_cat_r3_20', 'Bypass Assign turn: a footswitch up'),
-    (0x28dbc250, '9df82030', 'metronome_cat_r3_20', 'Bypass Assign turn: past the last footswitch'),
-    (0x28dd11aa, '9df82830', 'metronome_cat_r3_28', "a footswitch press: its blocks' toggle"),
-    (0x28ddf44c, '9df83830', 'metronome_cat_r3_38', 'controller assign: a MIDI CC allowed'),
-    (0x28de02fc, '9df83420', 'metronome_cat_r2_34', "a block change: a looper's bypass assignments dropped"),
-)
+# A block added from the browser to a slot with no assignment: by its browser category, a Wah or Volume/Pan block goes on FS5, a toe
+# switch's, Volume/Pan's on and Wah's off. The Metronome is no pedal's: the switch on the category reads it as a plain effect.
+ADD_SWITCH, ADD_SWITCH_STOCK = 0x28d952d0, bytes.fromhex('9df8 2830')     # ldrb.w r3, [sp, #0x28]
 
 # The footswitch assign (0x28dd8478) clears instead of assigning a block whose block category is None or Unknown: give it Volume's
 ASSIGN_CATEGORY, BLOCK_CATEGORY = 0x28dd84d8, 0x28e0f064
@@ -42,11 +28,8 @@ LED_COLOUR, LED_COLOUR_STOCK = 0x28db7e1c, bytes.fromhex('0438 1228')     # subs
 
 def apply(p):
     m = p.module('src/m4/metronome.s')
-    p.expect(SLOT_CATEGORY, SLOT_CATEGORY_STOCK, "the signal flow's slot category load")
-    p.put(SLOT_CATEGORY, pm.bl(SLOT_CATEGORY, m['metronome_slot']), "the signal flow's slot category load")
-    for site, stock, stub, what in LOOPER_TESTS:
-        p.expect(site, bytes.fromhex(stock), what)
-        p.put(site, pm.bl(site, m[stub]), what)
+    p.expect(ADD_SWITCH, ADD_SWITCH_STOCK, "a block add's browser category load")
+    p.put(ADD_SWITCH, pm.bl(ADD_SWITCH, m['metronome_add_cat']), "a block add's browser category load")
     p.own_call(ASSIGN_CATEGORY, BLOCK_CATEGORY, "the footswitch assign's block category", m['metronome_assign_cat'])
     hook = p.own_entry(LED_COLOUR, LED_COLOUR_STOCK, "the footswitch LED's colour lookup")
     a = pm.Asm(p.next())

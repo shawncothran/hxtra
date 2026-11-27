@@ -81,6 +81,8 @@ def test_text_is_compared_as_vision_reads_it():
     assert dt.norm('BAS:Studio Jazz®') == dt.norm('BAS:Studio Jazz#') == 'bas:studiojazz', 'the edited marker'
     assert dt.named('00: Metronome', 'Metronome') and dt.named('≥ Deluxe Comp', 'Deluxe Comp')
     assert not dt.named('Amp+Cab', 'Amp') and not dt.named('1x12 Mesa', 'Mesa')
+    assert dt.named('ull1 Metronome', 'Metronome') and dt.named('ull • Gain', 'Gain'), "Volume/Pan's bars icon"
+    assert not dt.named('Preamp', 'Amp') and not dt.named('Pull Gain', 'Gain')
 
 
 def test_lines_are_in_screen_pixels_and_found_by_text_pattern_and_region():

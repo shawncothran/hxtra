@@ -307,13 +307,17 @@ def browser(l6ia_bytes):
     return out
 
 
+VOLUME_PAN = 16
+
+
 @pytest.mark.firmware
-def test_the_browser_lists_it_in_a_metronome_folder_under_looper(built):
+def test_the_browser_lists_it_in_a_metronome_folder_under_volume_pan(built):
     data, out, info = built
     before, after = browser(data), browser(out)
     name_idx = kit.parse_entry3_full(kit.get_entry_swapped(out, 3))['models'][info['model_id']]['words'][2]
-    assert after[18] == before[18] + [('Metronome', [(1, name_idx, 'Metronome')])]   # a plain effect, not a looper
-    assert {c: f for c, f in after.items() if c != 18} == {c: f for c, f in before.items() if c != 18}
+    assert [f for f, _ in before[VOLUME_PAN]] == ['Mono', 'Stereo']
+    assert after[VOLUME_PAN] == before[VOLUME_PAN] + [('Metronome', [(1, name_idx, 'Metronome')])]   # a plain effect
+    assert {c: f for c, f in after.items() if c != VOLUME_PAN} == {c: f for c, f in before.items() if c != VOLUME_PAN}
 
 
 def ldr_blocks(l6ia_bytes):
