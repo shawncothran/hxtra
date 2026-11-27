@@ -3,8 +3,13 @@ Mtr knobs (tools/patch_comp.py).
 
 No Global Settings: the knobs live in the blocks. The DSP side (src/sharc/frame_probe.asm) goes in with them, in Block 3 room that
 NAM's third slot would take (tools/block3.py)."""
+import types
+
+import patch_menu as pm
+
 FLAG = 'HX_GR'
 WEB = 'dsp'
+XL_PORTED = True
 ORDER = 90                          # before the breathing line, which reads SHOWN
 MODULE = 'src/m4/gr_meter.s'
 SHOWN = 20                          # data + 20 in the module: nonzero while the meter shows
@@ -14,6 +19,14 @@ HOME_CTOR_CALL, HOME_CTOR = 0x28d96c44, 0x28dc91d0          # bl to the Home vie
 HOME_PAINT_LIT, HOME_PAINT = 0x28d96e28, 0x28dc8d39         # the Home view's paint function, as registered
 EDIT_PAINT_LIT, EDIT_PAINT = 0x28d96da0, 0x28dc27f9         # the Edit view top half's paint (list B), shared with dsp_meter
 VIEW_PAINT_LIT, VIEW_PAINT = 0x28d96e38, 0x28d947c9         # the generic list A paint: the Edit view's bottom half and nine others
+
+STOMP = types.SimpleNamespace(layout=pm.STOMP_MENU, rx_cb_lit=RX_CB_LIT, rx_cb=RX_CB, redraw=0x28db8509, repaint_shift=28,
+                                        selected=0x28df0281, dsp_ptr=0x28449e78, dsp_lock=0x28e07845,
+                                        dsp_unlock=0x28e0785d)
+XL = types.SimpleNamespace(rx_cb_lit=0x28da90b4, rx_cb=RX_CB, redraw=0x28dbb631, repaint_shift=26,
+                           selected=0x28df62bd, dsp_ptr=0x2844c5e8, dsp_lock=0x28e0db89,
+                                    dsp_unlock=0x28e0dba1, layout=pm.XL_MENU, play_paint_lit=0x28d99a44, play_paint=0x28dcc98d,
+                           edit_paint_lit=0x28d99a38, edit_paint=0x28dc5939)
 
 
 def comp_names(e3):
@@ -29,9 +42,21 @@ def inc(names):
                       f'.equ COMP_COUNT, {len(names)}\n.macro COMP_NAMES\n    .hword {", ".join(map(str, names))}\n.endm\n'}
 
 
+def profile_inc(profile):
+    values = {'GR_XL': int(profile is XL), 'GR_REDRAW': profile.redraw, 'GR_REPAINT_SHIFT': profile.repaint_shift,
+              'GR_SELECTED': profile.selected, 'GR_DSP_PTR': profile.dsp_ptr,
+              'GR_DSP_LOCK': profile.dsp_lock, 'GR_DSP_UNLOCK': profile.dsp_unlock}
+    return ''.join(f'.equ {name}, {address:#x}\n' for name, address in values.items())
+
+
 def apply(p):
-    m = p.module(MODULE, inc(comp_names(p.load(3))))
-    p.chain_ptr(RX_CB_LIT, RX_CB, before=m['frame'])
+    profile = XL if getattr(p, 'layout', pm.STOMP_MENU).base == pm.XL_MENU.base else STOMP
+    m = p.module(MODULE, inc={**inc(comp_names(p.load(3))), 'gr_profile.inc': profile_inc(profile)})
+    p.chain_ptr(profile.rx_cb_lit, profile.rx_cb, before=m['frame'])
+    if profile is XL:
+        p.chain_ptr(profile.play_paint_lit, profile.play_paint, after=m['gr_play'])
+        p.chain_ptr(profile.edit_paint_lit, profile.edit_paint, after=m['gr_edit'])
+        return
     p.chain_bl(HOME_CTOR_CALL, HOME_CTOR, after=m['construct'])
     p.chain_ptr(HOME_PAINT_LIT, HOME_PAINT, before=m['erase'], after=m['draw'])
     p.chain_ptr(EDIT_PAINT_LIT, EDIT_PAINT, after=m['edit_top'])

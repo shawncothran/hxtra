@@ -5,7 +5,7 @@
 .thumb
 .include "hxtra.inc"
 .include "rainbow.inc"              @ STEPS; RAINBOW_LEDS, RAINBOW_TEXTS: its colours, as tap_color.py blends them
-.equ LED_COLOUR, 0x28db81fd         @ (led, 0xBBGGRR): the colour an LED shows while it is on
+.include "tap.inc"
 .equ SET_COLOR, 0x28e24a29          @ (text widget, 0xRRGGBB)
 .equ SET_IMAGE, 0x28e24c19          @ (image widget, image index)
 .equ FS_FUNCTIONS, 0x28128a74       @ each footswitch's function, two bytes apart: 1 is TAP
@@ -13,14 +13,10 @@
 .equ LABEL_BOTTOM, 0xf4
 .equ ICON, 0x3f4                    @ footswitch k's switch icon, image widgets 0x24 bytes apart
 .equ ON_SCREEN, 3                   @ footswitches 4 and 5 are the external pair, with no label
-.equ CLOCK, 0x28da6459              @ () -> µs
 .equ COLOURS, 10
 .equ RAINBOW, 10                    @ then Random: the values that change colour at each beat
 .equ RANDOM, 11
 .equ OFF, 12                        @ no blink: the stock Tap Tempo LED Off; the labels keep the stock red
-.equ GET_VALUE, 0x28e1f845          @ (id, out): the value at out + 4, < 0 when it has none
-.equ SETTER_CONTEXT, 0x28e007ed     @ () -> the setter's context
-.equ SETTER, 0x28e1f8f5             @ (context, id, record {type, -, -, -, value}, source)
 .equ TAP_TEMPO_LED, 26              @ a bool: record type 1, as the stock knob writes it (source 1)
 .equ UNSEEN, 0xff
 
@@ -30,6 +26,10 @@ tap_led:                            @ the stock beat's colour call (led, its red
     push {r4, lr}
     mov r4, r0
     bl tap_setting
+.if TAP_OFF_BLACK
+    cmp r0, #OFF
+    beq tap_led_off
+.endif
     cmp r0, #RAINBOW
     beq tap_led_rainbow
     cmp r0, #RANDOM
@@ -69,6 +69,10 @@ tap_led_again:                      @ the other stock call that lights the TAP r
     push {r4, lr}
     mov r4, r0
     bl tap_setting
+.if TAP_OFF_BLACK
+    cmp r0, #OFF
+    beq tap_led_off
+.endif
     cmp r0, #RAINBOW
     blo tap_led_palette
     adr.w r1, tap_ring
@@ -76,6 +80,13 @@ tap_led_again:                      @ the other stock call that lights the TAP r
     adr.w r2, tap_now
     ldr r2, [r2]
     b tap_led_send
+
+.if TAP_OFF_BLACK
+tap_led_off:
+    movs r1, #0
+    ldr r2, =0xff0000
+    b tap_led_send
+.endif
 
 tap_random:                         @ -> r0 a colour of the palette, never the last one: xorshift32, seeded from the µs clock
     push {r4, lr}
@@ -181,12 +192,14 @@ tap_pick:                           @ (r0 a table) -> r0 its word for the settin
     ldr.w r0, [r4, r0, lsl #2]
     pop {r4, pc}
 
-tap_setting:                        @ -> r0 Tap LED Color, Off read as Red: the colour the labels and a stray ring turn take
+tap_setting:                        @ -> r0 Tap LED Color; Stomp labels and stray ring turns treat Off as Red
     push {r4, lr}
     bl tap_raw
+.if !TAP_OFF_BLACK
     cmp r0, #OFF
     it eq
     moveq r0, #0
+.endif
     pop {r4, pc}
 
 tap_raw:                            @ -> r0 Tap LED Color as stored, Off included

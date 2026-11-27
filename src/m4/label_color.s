@@ -2,8 +2,6 @@
 .syntax unified
 .thumb
 .include "label.inc"                @ VIRTUAL_FIRST, VIRTUAL_COUNT, TEAL, PARAMS, PARAM_TABLE
-.equ LABEL_COLOUR, 0x28dc6455       @ (slot, 0xRRGGBB): the slot's label colour
-.equ LABEL_TEXT, 0x28dc63d1         @ (knob, text): the knob's label
 .equ PARAM_INDEX, 0x6c              @ in the knob drawer's frame, as 0x28dbe830 leaves them
 .equ SECOND_MODEL, 0x70
 

@@ -14,6 +14,7 @@
 .syntax unified
 .thumb
 .include "gr.inc"
+.include "gr_profile.inc"
 .thumb_func
 frame:                              @ r1 the frame
     push {r0-r7, lr}
@@ -84,6 +85,9 @@ wasshown:
     cmp r0, #0
     bne grshow                      @ no measurement in this frame
     ldr.w r0, [r7, #1000]           @ word 250: the DSP's window count; frames repeat a window's values
+.if GR_XL
+    ror.w r0, r0, #16
+.endif
     ldr r1, [r4, #24]
     cmp r0, r1
     beq grshow
@@ -176,12 +180,16 @@ repaint:
     ldr r0, [r4, #16]               @ the setters only mark the canvas: ask the UI to repaint, at most every 16 frames
     cbz r0, leave
     ldr r0, [r4, #28]
-    lsls r0, r0, #28
+    lsls r0, r0, #GR_REPAINT_SHIFT
     bne leave
+.if GR_XL
+    movs r0, #1
+.else
     movs r0, #0
+.endif
     str r0, [r4, #16]
     movs r1, #1
-    ldr r3, =0x28db8509             @ the redraw request the layout code ends with: (0, 1)
+    ldr r3, =GR_REDRAW              @ XL marks both independent paint lists
     blx r3
 leave:
     add sp, #20
@@ -757,7 +765,7 @@ selected:                           @ -> r0 nonzero when the selected block is o
     push {r4-r6, lr}
     sub sp, #8
     add r0, sp, #4
-    ldr r3, =0x28df0281             @ the selected block's ID, as the Edit view's layout reads it; takes its own lock
+    ldr r3, =GR_SELECTED            @ the selected block's ID; takes its own lock
     blx r3
     subs r4, r0, #1                 @ IDs 1..8 are block records 0..7, IDs 11..18 records 8..15, the second row (0x28e07328)
     cmp r4, #8
@@ -767,11 +775,11 @@ selected:                           @ -> r0 nonzero when the selected block is o
     cmp r0, #8
     bhs enone
 eblock:
-    ldr r5, =0x28449e78             @ the DSP model: block records of 0x54 bytes
+    ldr r5, =GR_DSP_PTR             @ the DSP model: block records of 0x54 bytes
     ldr r5, [r5]
     cbz r5, enone
     movs r0, #0
-    ldr r3, =0x28e07845             @ its lock, as dsp_meter.s takes it
+    ldr r3, =GR_DSP_LOCK            @ its lock, as dsp_meter.s takes it
     blx r3
     movs r6, #0
     movs r2, #0x54
@@ -790,7 +798,7 @@ eblock:
     ldr r6, [r1, #0x54]             @ its model's name, an Entry 3 string index
 eunlock:
     movs r0, #0
-    ldr r3, =0x28e0785d
+    ldr r3, =GR_DSP_UNLOCK
     blx r3
     adr.w r1, comps
     movs r2, #COMP_COUNT
@@ -821,6 +829,59 @@ comps:                              @ the compressor models' names, from gr.inc
 data:                               @ 0 shown reduction (Q16), 4 frames since a new window, 8 marker, 12 latch, 16 repaint,
     .space 52                       @ 20 ours shown, 24 the last window seen, 28 frames, 32 the block's knobs (word 218), 36 relayout at frame, 40 layout,
                                     @ 44 the selected divider segment, 48 the layout the Edit view shows
+.if GR_XL
+.balign 4
+gr_line_middle:
+    .word 0
+
+.thumb_func
+gr_play:
+    movs r2, #0
+    b gr_xl_paint
+
+.thumb_func
+gr_edit:
+    movs r2, #1
+gr_xl_paint:
+    push {r4-r8, r11, lr}
+    mov r11, r0
+    mov r4, r1
+    mov r6, r2
+    adr.w r5, data
+    ldr r0, [r5, #48]
+    cbz r0, gr_xl_current
+    movs r1, #0
+    bl slots
+    movs r0, #0
+    str r0, [r5, #48]
+gr_xl_current:
+    ldr r7, [r5, #40]
+    cbz r7, gr_xl_line
+    cbz r6, gr_xl_line
+    bl selected
+    cmp r0, #0
+    it eq
+    moveq r7, #0
+gr_xl_line:
+    adr.w r3, gr_line_middle
+    movs r2, #0
+    cbz r7, gr_xl_line_store
+    ubfx r2, r7, #8, #8
+    cmp r2, #0
+    ite eq
+    lsreq r2, r7, #31
+    movne r2, #0
+gr_xl_line_store:
+    str r2, [r3]
+    cbz r7, gr_xl_out
+    mov r0, r7
+    movs r1, #1
+    bl slots
+    str r7, [r5, #48]
+gr_xl_out:
+    mov r0, r4
+    pop {r4-r8, r11, pc}
+.endif
 want:                               @ colour, x, y, w, h
     .space 20
 widgets:                            @ ten slots for each edge, Top, Left, Bottom, Right, then Middle's slots 4..9

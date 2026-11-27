@@ -1,11 +1,14 @@
 """tools/features/tap_color.py and src/m4/tap_color.s: the handlers in unicorn (the ring's colour, the label lines and icon, the Home
 paint's recolouring after a change), the palette against the stock code it comes from, and the firmware it builds (Displays' page,
 the virtual setting, the hooks)."""
+import os
 import struct
 
 import pytest
 
 import features
+import l6ia
+import patch_amp as pa
 import patch_menu as pm
 import setting_ids
 import image_store
@@ -33,18 +36,22 @@ class Tap:
     """tap_color.s in tests/m4emu.py's M4: GET_VALUE answers self.value for Tap LED Color and self.led for Tap Tempo LED (None:
     unset), the engine's store sets self.value, the stock setter sets self.led; the setters and the LED colour logged."""
 
-    def __init__(self, m4emu):
-        if 'tap' not in _code:
-            _code['tap'] = m4emu.assemble('src/m4/tap_color.s', MODS, IDS, virt_set=VIRT_SET, inc={'rainbow.inc': tc.rainbow_inc()})
-        code, self.sym = _code['tap']
+    def __init__(self, m4emu, profile=tc.STOMP):
+        self.profile = profile
+        key = 'tap_xl' if profile is tc.XL else 'tap'
+        if key not in _code:
+            _code[key] = m4emu.assemble('src/m4/tap_color.s', MODS, IDS, virt_set=VIRT_SET,
+                                        inc={'rainbow.inc': tc.rainbow_inc(), 'tap.inc': tc.tap_inc(profile)},
+                                        layout=profile.layout)
+        code, self.sym = _code[key]
         self.m = m4emu.M4(code, MOD)
         self.value, self.led, self.now = None, 1, 0x12345678
-        self.m.stub(GET_VALUE, self.get_value)
-        self.m.stub(CLOCK, lambda m: m.reg('r0', self.now))
-        self.m.stub(SETTER_CONTEXT, lambda m: m.reg('r0', 0x28700800))
-        self.m.stub(SETTER, self.setter)
+        self.m.stub(profile.get & ~1, self.get_value)
+        self.m.stub(profile.clock & ~1, lambda m: m.reg('r0', self.now))
+        self.m.stub(profile.layout.context, lambda m: m.reg('r0', 0x28700800))
+        self.m.stub(profile.layout.setter, self.setter)
         self.m.stub(VIRT_SET, self.virt_set)
-        for fn in (tc.LED_COLOUR, tc.SET_COLOR, tc.SET_IMAGE):
+        for fn in (profile.led_colour & ~1, tc.SET_COLOR, tc.SET_IMAGE):
             self.m.stub(fn)
         self.functions((2, 2, 2))
 
@@ -78,7 +85,9 @@ class Tap:
         self.m.log.clear()
         self.stored, self.picked = [], []
         self.m.call(MOD + self.sym[sym], *args)
-        return [(fn, regs[:2]) for fn, regs in self.m.log if fn not in (GET_VALUE, CLOCK, SETTER, SETTER_CONTEXT, VIRT_SET)]
+        internal = (self.profile.get & ~1, self.profile.clock & ~1, self.profile.layout.setter,
+                self.profile.layout.context, VIRT_SET)
+        return [(fn, regs[:2]) for fn, regs in self.m.log if fn not in internal]
 
     def shown(self):
         return self.m.u32(MOD + self.sym['tap_now'])
@@ -87,6 +96,45 @@ class Tap:
 @pytest.fixture
 def tap(m4emu):
     return Tap(m4emu)
+
+
+@pytest.fixture
+def tap_xl(m4emu):
+    return Tap(m4emu, tc.XL)
+
+
+def test_xl_ring_colors_and_off_state(tap_xl):
+    tap_xl.value = 4
+    assert tap_xl.call('tap_led', 7, 0) == [(tc.XL.led_colour & ~1, (7, LEDS[4]))]
+    assert tap_xl.shown() == TEXTS[4]
+    tap_xl.value = OFF
+    assert tap_xl.call('tap_led', 7, LEDS[0]) == [(tc.XL.led_colour & ~1, (7, 0))]
+    assert tap_xl.shown() == TEXTS[0]
+    assert tap_xl.call('tap_led_again', 7, 0) == [(tc.XL.led_colour & ~1, (7, 0))]
+
+
+def test_xl_ring_rainbow_and_random(tap_xl):
+    tap_xl.value = RAINBOW
+    for led, text in tc.rainbow()[:3]:
+        assert tap_xl.call('tap_led', 7, 0) == [(tc.XL.led_colour & ~1, (7, led))]
+        assert tap_xl.shown() == text
+
+    tap_xl.value, tap_xl.now = RANDOM, 0
+    colours = [tap_xl.call('tap_led', 7, 0)[0][1][1] for _ in range(10)]
+    assert all(colour in LEDS for colour in colours)
+    assert all(a != b for a, b in zip(colours, colours[1:]))
+    assert tap_xl.shown() == TEXTS[LEDS.index(colours[-1])]
+
+
+def test_xl_tap_color_changes_sync_the_stock_tempo_led(tap_xl):
+    tap_xl.value = 4
+    tap_xl.call('tap_sync_page', 0x2812b000)
+    tap_xl.value = OFF
+    tap_xl.call('tap_changed', 0x2812b000, IDS['tap_color.color'])
+    assert tap_xl.led == 0
+    tap_xl.value = 7
+    tap_xl.call('tap_changed', 0x2812b000, IDS['tap_color.color'])
+    assert tap_xl.led == 1
 
 
 def test_feature_settings():
@@ -376,7 +424,8 @@ def test_build_sends_the_tap_calls_and_the_home_paint_to_the_module(m4emu, monke
 
     monkeypatch.setattr(pm.Patch, 'module', module)
     read, on = built({'HX_TAP_COLOR': '1'})
-    code, sym = m4emu.assemble('src/m4/tap_color.s', MODS, IDS, virt_set=virt['src/m4/tap_color.s'], inc={'rainbow.inc': tc.rainbow_inc()})
+    code, sym = m4emu.assemble('src/m4/tap_color.s', MODS, IDS, virt_set=virt['src/m4/tap_color.s'],
+                               inc={'rainbow.inc': tc.rainbow_inc(), 'tap.inc': tc.tap_inc(tc.STOMP)})
     assert 'tap_color' in on
     module = branch_target(tc.LED_CALLS[0], read(tc.LED_CALLS[0], 4)) - sym['tap_led']
     assert read(module, len(code)) == code
@@ -385,6 +434,48 @@ def test_build_sends_the_tap_calls_and_the_home_paint_to_the_module(m4emu, monke
     assert branch_target(tc.ICON_CALL, read(tc.ICON_CALL, 4)) == module + sym['tap_icon']
     stub = struct.unpack('<I', read(tc.HOME_PAINT_LIT, 4))[0] & ~1
     assert branch_target(stub + 6, read(stub + 6, 4)) == module + sym['tap_paint'], 'push, ldm, then the before handler'
+
+
+@pytest.mark.firmware
+def test_xl_ring_calls_are_guarded_and_patched(m4emu, tmp_path):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda index: pa.get_entry_swapped(archive, index)
+    stock = reader(load(0))
+    env = {'HX_TAP_COLOR': '1'}
+    entries, enabled = pm.menu_entries(load, MODS, env, IDS, layout=pm.XL_MENU)
+    assert 'tap_color' in [features.name(feature) for feature in enabled]
+    image = l6ia.rebuild_archive(archive, entries)[0]
+    output = tmp_path / 'xl-enabled.l6ia'
+    output.write_bytes(image)
+    patched = pa.load_l6ia_from_any(str(output))[0]
+    read = reader(pa.get_entry_swapped(patched, 0))
+    code, sym = m4emu.assemble('src/m4/tap_color.s', MODS, IDS, virt_set=VIRT_SET,
+                               inc={'rainbow.inc': tc.rainbow_inc(), 'tap.inc': tc.tap_inc(tc.XL)},
+                               layout=pm.XL_MENU)
+    targets = []
+    for site, expected, handler in tc.XL.ring_calls:
+        assert stock(site, 4) == expected
+        targets.append((branch_target(site, read(site, 4)), handler))
+    module = targets[0][0] - sym[targets[0][1]]
+    assert [target for target, _ in targets] == [module + sym[handler] for _, _, handler in tc.XL.ring_calls]
+    for site, original in ((tc.CHANGED + pm.XL_MENU_SHIFT, tc.CHANGED_STOCK),
+                           (tc.PAGE + pm.XL_MENU_SHIFT, tc.PAGE_STOCK)):
+        assert stock(site, len(original)) == original and read(site, len(original)) != original
+    assert struct.unpack('<I', read(0x28d99a44, 4))[0] != struct.unpack('<I', stock(0x28d99a44, 4))[0]
+
+    entries, enabled = pm.menu_entries(load, MODS, {}, IDS, layout=pm.XL_MENU)
+    assert 'tap_color' not in [features.name(feature) for feature in enabled]
+    image = l6ia.rebuild_archive(archive, entries)[0]
+    output = tmp_path / 'xl-disabled.l6ia'
+    output.write_bytes(image)
+    unmodified = pa.load_l6ia_from_any(str(output))[0]
+    read = reader(pa.get_entry_swapped(unmodified, 0))
+    assert all(read(site, 4) == expected for site, expected, _ in tc.XL.ring_calls)
+    assert read(tc.CHANGED + pm.XL_MENU_SHIFT, 4) == tc.CHANGED_STOCK
+    assert read(tc.PAGE + pm.XL_MENU_SHIFT, 4) == tc.PAGE_STOCK
 
 
 @pytest.mark.firmware

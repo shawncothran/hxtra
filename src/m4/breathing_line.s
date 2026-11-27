@@ -6,7 +6,7 @@
 .thumb
 .include "hxtra.inc"
 .include "gr.inc"                   @ GR_SHOWN: the gain-reduction meter's shown word, or 0 in a build without it
-.equ SEGMENTS, 0x2812a594           @ the stock divider: four 80 px rectangle widgets, 0x1c apart
+.include "breathing.inc"
 .equ STRIP, 4                       @ px
 .equ STRIPS, 80
 .equ STRIPS_A_SEGMENT, 20
@@ -23,7 +23,7 @@
 .equ RAINBOW, 10                    @ the Color without a row in bl_schemes
 .equ TEMPO, 10                      @ the Speed without a row in bl_rates
 
-bl_tick:                            @ after the LED task's 1 ms sleep: a repaint every FRAME_MS while the line runs and the Home view is up
+bl_tick:                            @ after the LED task's 1 ms sleep: a repaint every FRAME_MS while the line runs and its view is up
     adr.w r0, bl_data
     ldr r1, [r0, #24]
     cbz r1, bl_ticked
@@ -51,20 +51,53 @@ bl_started:
     movs r1, #0
     str r1, [r0, #8]
 bl_redraw:
+.if LINE_XL
+    adr.w r2, bl_data
+    ldr r2, [r2, #28]
+    cbnz r2, bl_redraw_edit
+    movs r0, #1
+    movs r1, #1
+    b bl_request_redraw
+bl_redraw_edit:
+    movs r0, #1
+    movs r1, #0
+bl_request_redraw:
+    ldr r3, =LINE_REDRAW
+    bx r3
+.else
     movs r0, #0
     movs r1, #1
-    ldr r3, =0x28db8509             @ the redraw request the layout code ends with: (0, 1)
+    ldr r3, =0x28db8509
     bx r3
+.endif
 bl_frame:
     str r1, [r0, #8]
 bl_ticked:
     bx lr
 
-bl_paint:                           @ after the Home paint (framebuffer): the strips
+bl_paint:                           @ default entry retained for the emulator: Home on Stomp, Edit on XL
+.if LINE_XL
+    movs r2, #1
+    b bl_paint_view
+bl_paint_play:
+    movs r2, #0
+    b bl_paint_view
+bl_paint_edit:
+    movs r2, #1
+bl_paint_view:                      @ r2: Play/Home (0) or Edit (1)
+.else
+bl_paint_play:
+.endif
     push {r4-r11, lr}
     sub sp, #20                     @ the fill's stack arguments: 0 height, 4 colour, 8 anchor
+.if LINE_XL
+    str r2, [sp, #16]
+.endif
     mov r4, r0
     adr.w r9, bl_data
+.if LINE_XL
+    str r2, [r9, #28]
+.endif
     movs r0, #0
     str r0, [r9, #4]
     ldr r0, [r9, #24]
@@ -94,7 +127,13 @@ bl_booting:
     ldr r5, [r9]
     cmp r5, #1
     bne bl_stopped
+.if LINE_XL
+    ldr r0, =LINE_EDIT_SEGMENTS
+    movs r1, #2
     bl bl_restore
+.else
+    bl bl_restore
+.endif
     movs r6, #2                     @ the stock segments are dirty: one more paint draws them
 bl_stopped:
     cmp r5, #0
@@ -125,7 +164,7 @@ bl_speed:
     ldr.w r0, [r1, r0, lsl #2]
 bl_rated:
     mov r10, r0
-    ldr r3, =0x28da6459             @ the µs clock
+    ldr r3, =LINE_CLOCK              @ the µs clock
     blx r3
     ldr r1, [r9, #12]
     str r0, [r9, #12]
@@ -140,15 +179,65 @@ bl_rated:
     str r3, [r9, #20]
 bl_same_cycle:
     lsr.w r8, r2, #16
-    ldr r3, =0x28e24971             @ the widget lock, as the stock paint takes it
+    ldr r3, =LINE_LOCK              @ the widget lock, as the stock paint takes it
     blx r3
+.if LINE_XL
+    ldr r0, [sp, #16]
+    cbnz r0, bl_xl_edit_divider
+    ldr.w r11, =LINE_PLAY_SEGMENTS
+    bl bl_valid_divider
+    cbnz r0, bl_xl_play_base_valid
+    b.w bl_render_done
+bl_xl_play_base_valid:
+    ldr.w r11, =LINE_SELECTED
+    bl bl_valid_overlay
+    cbnz r0, bl_xl_play_overlay
+    movs r10, #0
+    b bl_xl_play_ready
+bl_xl_play_overlay:
+    mov r10, r11
+bl_xl_play_ready:
     movs r5, #0
+    b bl_strip
+bl_xl_edit_divider:
+    ldr.w r11, =LINE_SELECTED
+    bl bl_valid_divider
+    cbnz r0, bl_xl_edit_found
+    ldr.w r11, =LINE_EDIT_SEGMENTS
+    bl bl_valid_divider
+    cbnz r0, bl_xl_edit_found
+    b.w bl_render_done
+bl_xl_edit_found:
+    movs r5, #0
+    b bl_strip
+.else
+    movs r5, #0
+.endif
 bl_strip:
+.if LINE_XL
+    ldr r0, [sp, #16]
+    cbnz r0, bl_xl_widget_ready
+    ldr.w r11, =LINE_PLAY_SEGMENTS
+    cmp r10, #0
+    beq bl_xl_widget_ready
+    lsls r0, r5, #2
+    ldr r1, [r10, #4]
+    cmp r0, r1
+    blo bl_xl_widget_ready
+    ldr r1, [r10, #4]
+    ldr r2, [r10, #0xc]
+    adds r1, r1, r2
+    cmp r0, r1
+    bhs bl_xl_widget_ready
+    mov r11, r10
+bl_xl_widget_ready:
+.else
     movs r0, #STRIPS_A_SEGMENT
     udiv r0, r5, r0
     movs r1, #0x1c
-    ldr.w r11, =SEGMENTS
+    ldr.w r11, =LINE_PLAY_SEGMENTS
     mla r11, r0, r1, r11
+.endif
     ldrb.w r0, [r11, #0x15]         @ visible
     cmp r0, #0
     beq bl_next
@@ -166,9 +255,19 @@ bl_strip:
     str r0, [sp]
     movs r0, #6                     @ x at the left edge, y at the top, as the stock segments are placed
     str r0, [sp, #8]
+.if LINE_XL
+    lsls r1, r5, #2
+    ldr.w r2, [r11, #8]
+    ldr r0, [sp, #16]
+    cbnz r0, bl_play_y_ready
+    adds r2, #LINE_PLAY_Y_OFFSET
+bl_play_y_ready:
+    mov r0, r4
+.else
     mov r0, r4
     lsls r1, r5, #2
     ldr.w r2, [r11, #8]
+.endif
     movs r3, #STRIP
     ldr.w r12, =0x100017e9          @ the ROM rectangle fill (fb, x, y, w, h, colour, anchor)
     blx r12
@@ -176,21 +275,43 @@ bl_next:
     adds r5, #1
     cmp r5, #STRIPS
     bne bl_strip
-    ldr r3, =0x28e24ae9
+.if LINE_XL
+bl_render_done:
+.endif
+    ldr r3, =LINE_UNLOCK
     blx r3
 bl_painted:
     add sp, #20
     pop {r4-r11, pc}
 
 bl_restore:                         @ Type turned Off: the stock segments marked dirty, as setColor would mark them
+.if LINE_XL
+    push {r4-r6, lr}
+    mov r4, r0
+    mov r5, r1
+    ldr r3, =LINE_LOCK
+    blx r3
+    movs r2, #1
+bl_dirty:
+    ldr r3, [r4, #0x18]             @ the node
+    cbz r3, bl_next_node
+    strb r2, [r3, #0x24]
+bl_next_node:
+    adds r4, #0x1c
+    subs r5, #1
+    bne bl_dirty
+    ldr r3, =LINE_UNLOCK
+    blx r3
+    pop {r4-r6, pc}
+.else
     push {r4, lr}
     ldr r3, =0x28e24971
     blx r3
-    ldr r0, =SEGMENTS
+    ldr r0, =LINE_PLAY_SEGMENTS
     movs r1, #4
     movs r2, #1
 bl_dirty:
-    ldr r3, [r0, #0x18]             @ the node
+    ldr r3, [r0, #0x18]
     strb r2, [r3, #0x24]
     adds r0, #0x1c
     subs r1, #1
@@ -198,6 +319,65 @@ bl_dirty:
     ldr r3, =0x28e24ae9
     blx r3
     pop {r4, pc}
+.endif
+
+.if LINE_XL
+bl_valid_divider:                   @ r11 a candidate XL divider widget -> r0 1 when it is visible and has stock divider geometry
+    ldrb r0, [r11, #0x15]
+    cbz r0, bl_not_divider
+    ldrb r0, [r11, #0x14]
+    cmp r0, #6
+    bne bl_not_divider
+    ldr r0, [r11, #4]
+    cbnz r0, bl_not_divider
+    ldr r0, [r11, #8]
+    cmp r0, #120
+    bne bl_not_divider
+    ldr r0, [r11, #0xc]
+    cmp r0, #320
+    bne bl_not_divider
+    ldr r0, [r11, #0x10]
+    subs r0, #1
+    cmp r0, #1
+    ite ls
+    movls r0, #1
+    movhi r0, #0
+    bx lr
+bl_not_divider:
+    movs r0, #0
+    bx lr
+
+bl_valid_overlay:                   @ r11 the selected Play rectangle -> r0 1 when it fits inside the 320 px divider
+    ldrb r0, [r11, #0x15]
+    cbz r0, bl_not_overlay
+    ldrb r0, [r11, #0x14]
+    cmp r0, #6
+    bne bl_not_overlay
+    ldr r0, [r11, #4]
+    cmp r0, #320
+    bhs bl_not_overlay
+    ldr r1, [r11, #8]
+    cmp r1, #119
+    beq bl_overlay_y_ok
+    cmp r1, #120
+    bne bl_not_overlay
+bl_overlay_y_ok:
+    ldr r1, [r11, #0xc]
+    cbz r1, bl_not_overlay
+    cmp r1, #320
+    bhi bl_not_overlay
+    adds r0, r0, r1
+    cmp r0, #320
+    bhi bl_not_overlay
+    ldr r0, [r11, #0x10]
+    cmp r0, #2
+    bne bl_not_overlay
+    movs r0, #1
+    bx lr
+bl_not_overlay:
+    movs r0, #0
+    bx lr
+.endif
 
 bl_tempo_rate:                      @ r0 Type -> r0 the rate for bl_beats of its beats a cycle at the tempo, 0 if there is none
     push {r4, lr}
@@ -240,7 +420,7 @@ bl_get:                             @ r0 a stock setting ID -> r0 its value as s
     push {r4, lr}
     sub sp, #8
     mov r1, sp
-    ldr r3, =0x28e1f845             @ GET_VALUE(id, out): the value at out + 4
+    ldr r3, =LINE_GET               @ GET_VALUE(id, out): the value at out + 4
     blx r3
     cmp r0, #0
     ldr r0, [sp, #4]
@@ -545,8 +725,11 @@ bl_schemes:                         @ Color's three stops but Rainbow's; a plain
     .word 0x00ff70, 0x00b0ff, 0x9a00ff  @ Aurora: green, sky blue, violet
     .word 0xff00d0, 0x5000ff, 0x00f0ff  @ Neon: magenta, indigo, cyan
 bl_data:                            @ 0 running (0 no, 1 yes, 2 one more paint for the stock line), 4 ms since the last Home paint,
-    .word 0, 0, 0, 0, 0, 0, 0       @ 8 ms into the frame, 12 the clock at the last paint (µs), 16 the phase (2^32 a cycle), 20 cycles,
+    .word 0, 0, 0, 0, 0, 0, 0      @ 8 ms into the frame, 12 the clock at the last paint (µs), 16 the phase (2^32 a cycle), 20 cycles,
                                     @ 24 1 + ms since the first Home paint, up to START_MS + 1 (0 before it)
+.if LINE_XL
+    .word 0                        @ 28 the last view painter (Play/Home 0, Edit 1)
+.endif
 bl_sine:                            @ 128 + 127.5 sin(2 pi i / 256), rounded
     .byte 128, 131, 134, 137, 140, 143, 146, 149, 152, 155, 158, 162, 165, 167, 170, 173
     .byte 176, 179, 182, 185, 188, 190, 193, 196, 198, 201, 203, 206, 208, 211, 213, 215

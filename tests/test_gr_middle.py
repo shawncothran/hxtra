@@ -40,7 +40,8 @@ class Home:
 
     def __init__(self, m4emu):
         import features.gr as gr
-        code, self.sym = m4emu.assemble('src/m4/gr_meter.s', [], {}, inc=gr.inc(COMP_NAMES))
+        code, self.sym = m4emu.assemble('src/m4/gr_meter.s', [], {},
+                                        inc={**gr.inc(COMP_NAMES), 'gr_profile.inc': gr.profile_inc(gr.STOMP)})
         m = self.m = m4emu.M4(code, MODULE)
         e0 = stock_e0()
         for _, off, n, dst, _ in pa._parse_e0_segments(e0):

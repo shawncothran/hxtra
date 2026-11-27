@@ -4,45 +4,28 @@
 .syntax unified
 .thumb
 .include "tap.inc"                  @ TAP_LED, TAP_LED_AGAIN: Tap LED Color's ring colour handlers, or 0 in a build without it
+.include "tap_command.inc"
 .equ TAP, 9                         @ the command type
 .equ TAP_CHOICE, 7                  @ its place on the Command knob of an FS slot, after Hotkey
 .equ FS_SLOT, 6                     @ FS1's slot; FS1..FS5 are slots 6..10
-.equ RINGS, 3                       @ FS1..FS3 have a ring; FS4 and FS5 are external switches
-.equ CC, 0x281252b8                 @ the Command Center, as 0x28d96094() returns it
 .equ CC_TYPE, 0x74                  @ in it: each slot's command type
-.equ FS_FUNCTIONS, 0x28128a74       @ each footswitch's function, two bytes apart: 1 TAP, 2 Stomp
 .equ STOMP, 2
-.equ FS3_TAP, 8                     @ in the footswitches' state: FS3's function byte, which the stock beat reads
-.equ FS_STATE, 0x28d9607d           @ () -> the footswitches' state
-.equ FS_OBJ, 0x28d96085             @ () -> the footswitches' assignment lists
-.equ FS_NODE, 0x28dd7219            @ (lists, k) -> footswitch k's command node, 0 when it has none
 .equ NODE_ON, 0x20                  @ in a node: the command's on/off state, which the label and the ring show
-.equ FOOTSWITCHES, 5
-.equ FIRE, 0x28de5cd5               @ (cc, slot, state, momentary): the stock command fire
-.equ NODE_NAME, 0x28dd568d          @ (node, type) -> 0 for a type with no footswitch node: Ext Amp, CV and Instant Hotkey
 .equ NODE_LABEL, 0x24               @ in a node: its name, the label Home shows for a footswitch with no block
-.equ STRCPY, 0x28daad95             @ (to, from)
-.equ CHOICE, 0x28de57d1             @ (cc, slot, type) -> the type's place on the slot's Command knob, 0 when it has none
-.equ STEP, 0x28de64a1               @ (cc, slot, type, turn) -> the type a turn of the Command knob moves to
-.equ TAP_CORE, 0x28d9bfa9           @ (): a tap of the tempo
-.equ GET_VALUE, 0x28e1f845          @ (id, out): the setting's value at out + 4, < 0 when it has none
 .equ TEMPO_SELECT, 14               @ 2 Global: the BPM is setting 15, else 16
 .equ TAP_TEMPO_LED, 26
-.equ EXT_CLOCK, 0x28d9685d          @ () -> non-zero while external MIDI clock sets the tempo
-.equ LED_COLOUR, 0x28db81fd         @ (led, 0xBBGGRR)
-.equ LED_MODE, 0x28db8261           @ (led, mode): 0 off, 1 on
-.equ RED, 0x28e280b0                @ the stock beat's ring colours, internal clock
-.equ BLUE, 0x28e280ac               @ and external
-.equ BEAT_PERIOD, 0x281ccc44        @ the stock beat's period in whole ms
-.equ BEAT_ON, 0x281ccc48            @ and its enable byte
 
 .thumb_func
 .global tc_fire
 tc_fire:                            @ the stomp toggle's fire (cc, slot, state, momentary): Tap taps, any other command fires as stock
+    sub.w r12, r1, #FS_SLOT
+    cmp r12, #FOOTSWITCHES - 1
+    bhi fire_stock
     add.w r12, r0, r1
     ldrb.w r12, [r12, #CC_TYPE]
     cmp r12, #TAP
     beq 1f
+fire_stock:
     ldr r12, =FIRE
     bx r12
 1:  push {r4, lr}
@@ -86,7 +69,7 @@ tc_node:                            @ the footswitch node insert's naming (node,
 .global tc_choice
 tc_choice:                          @ type -> place (cc, slot, type): on an FS slot Tap after Hotkey, Preset and the rest one later
     sub.w r12, r1, #FS_SLOT
-    cmp r12, #4
+    cmp r12, #FOOTSWITCHES - 1
     bhi 2f
     cmp r2, #TAP
     beq 1f
@@ -106,7 +89,7 @@ tc_choice:                          @ type -> place (cc, slot, type): on an FS s
 .global tc_step
 tc_step:                            @ the Command knob's turn (cc, slot, type, turn) -> type: on an FS slot one place along tc_list
     sub.w r12, r1, #FS_SLOT
-    cmp r12, #4
+    cmp r12, #FOOTSWITCHES - 1
     bls 1f
     ldr r12, =STEP
     bx r12
@@ -156,7 +139,7 @@ tc_running:                         @ the stock beat's "is FS3 TAP" () -> state:
     ldr r3, =FS_STATE
     blx r3
     mov r4, r0
-    ldrb r3, [r0, #FS3_TAP]
+    ldrb r3, [r0, #DEDICATED_TAP]
     cmp r3, #1
     beq 1f
     bl tc_active
@@ -167,12 +150,73 @@ tc_running:                         @ the stock beat's "is FS3 TAP" () -> state:
 
 .thumb_func
 .global tc_on
+.if XL_TAP_COMMAND
+tc_on:
+    push {r4, lr}
+    ldr r3, =FS_STATE
+    blx r3
+    mov r4, r0
+    ldrb r3, [r0, #DEDICATED_TAP]
+    cmp r3, #1
+    beq tc_on_done
+    movs r0, #1
+    bl tc_light_rings
+tc_on_done:
+    mov r0, r4
+    pop {r4, pc}
+
+.thumb_func
+.global tc_sync_on
+tc_sync_on:
+    push {r4, lr}
+    ldr r3, =LED_MODE
+    blx r3
+    movs r0, #0
+    bl tc_light_rings
+    pop {r4, pc}
+
+tc_light_rings:
+    push {r4-r8, lr}
+    mov r7, r0
+    bl tc_active
+    mov r5, r0
+    movs r4, #0
+tc_light_loop:
+    lsrs r5, r5, #1
+    bcc tc_light_next
+    ldr r3, =EXT_CLOCK
+    blx r3
+    cbz r0, tc_light_internal
+    ldr r1, =BLUE
+    ldr r1, [r1]
+    mov r0, r4
+    ldr r3, =LED_COLOUR
+    blx r3
+    b tc_light_mode
+tc_light_internal:
+    mov r0, r4
+    ldr r1, =RED
+    ldr r1, [r1]
+    mov r2, r7
+    bl tc_colour
+    movs r7, #0
+tc_light_mode:
+    mov r0, r4
+    movs r1, #1
+    ldr r3, =LED_MODE
+    blx r3
+tc_light_next:
+    adds r4, #1
+    cmp r5, #0
+    bne tc_light_loop
+    pop {r4-r8, pc}
+.else
 tc_on:                              @ the beat's turn on, its FS3 check () -> state: each Tap ring lit, then FS3 as stock
     push {r4, r5, r6, r7, lr}
     ldr r3, =FS_STATE
     blx r3
     mov r6, r0
-    ldrb r7, [r0, #FS3_TAP]
+    ldrb r7, [r0, #DEDICATED_TAP]
     subs r7, #1                     @ 0 when FS3 is TAP: its own turn moves Tap LED Color on, after this
     bl tc_active
     mov r5, r0
@@ -203,6 +247,7 @@ tc_on:                              @ the beat's turn on, its FS3 check () -> st
     bne 1b
     mov r0, r6
     pop {r4, r5, r6, r7, pc}
+.endif
 
 tc_colour:                          @ (led, red, next): the ring's colour; with next, Tap LED Color's next one, else the one it shows
 .if TAP_LED
@@ -222,10 +267,10 @@ tc_off:                             @ the beat's turn off (2, 0): FS3's ring whe
     push {r4, r5, r6, lr}
     ldr r3, =FS_STATE
     blx r3
-    ldrb r3, [r0, #FS3_TAP]
+    ldrb r3, [r0, #DEDICATED_TAP]
     cmp r3, #1
     bne 1f
-    movs r0, #2
+    movs r0, #DEDICATED_RING
     movs r1, #0
     ldr r3, =LED_MODE
     blx r3
@@ -246,7 +291,11 @@ tc_off:                             @ the beat's turn off (2, 0): FS3's ring whe
 .thumb_func
 .global tc_refresh
 tc_refresh:                         @ the footswitch LED refresh's () -> state: Tap commands shown on, the beat set going for a Tap ring
+.if XL_TAP_COMMAND
+    push {r0, r1, r4, lr}
+.else
     push {r4, lr}
+.endif
     movs r4, #0
 1:  ldr r1, =FS_FUNCTIONS
     ldrb.w r1, [r1, r4, lsl #1]
@@ -262,18 +311,33 @@ tc_refresh:                         @ the footswitch LED refresh's () -> state: 
     cmp r4, #FOOTSWITCHES
     blo 1b
     bl tc_tempo
+.if XL_TAP_COMMAND
+    pop {r0, r1, r4, lr}
+    ldr r12, =REFRESH_NEXT
+    bx r12
+.else
     ldr r3, =FS_STATE
     pop {r4, lr}
     bx r3
+.endif
 
 .thumb_func
 .global tc_setting
 tc_setting:                         @ a tempo setting's change, before each ring's function -> state: stock resets only a TAP ring's beat
+.if XL_TAP_COMMAND
+    cmp r4, #0
+    bne setting_stock
+.endif
     push {r4, lr}
     bl tc_tempo
     ldr r3, =FS_STATE
     pop {r4, lr}
     bx r3
+.if XL_TAP_COMMAND
+setting_stock:
+    ldr r12, =FS_STATE
+    bx r12
+.endif
 
 tc_tempo:                           @ while a Tap ring is to blink and FS3 is not TAP: the beat's period from the BPM and the beat on,
                                     @ or off with Tap Tempo LED Off
@@ -332,9 +396,21 @@ tc_get:                             @ r0 a setting ID -> r0 its value as stored,
     pop {r4, pc}
 
 .ltorg
+.if XL_TAP_COMMAND
+    .balign 4
+.else
 .balignl 4, 0
+.endif
 tc_tap_state:                       @ footswitch state as the beat reads it while only a Tap command blinks: FS3 reads TAP
+.if XL_TAP_COMMAND
+    .space DEDICATED_TAP
+    .byte 1
+.else
     .word 0, 0, 1
+.endif
+.if XL_TAP_COMMAND
+    .balign 4
+.endif
 tc_name:
     .asciz "Tap"
 .balignl 4, 0
