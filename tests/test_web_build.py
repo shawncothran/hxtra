@@ -259,6 +259,59 @@ def test_page_default_is_two_nam_slots_and_every_dsp_feature_and_fits():
     assert block3.fits(picked, [f for f, on in boxes.items() if on])
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize("slots, fixed", [([2], True), ([3, 2, 1, 0], False)])
+def test_page_fixed_slots_and_required_dsp_cost(slots, fixed):
+    page = (ROOT / "web/index.html").read_text()
+    functions = page[page.index("  function slotsPicked() {"):page.index("  redraw.push(dspDraw);")]
+    script = r"""
+const config = JSON.parse(process.argv[1]);
+const elements = {};
+function $(id) { return elements[id] ||= {style: {}, classList: {toggle() {}}, textContent: ''}; }
+function t(key, vars) { return JSON.stringify(vars); }
+function ticked() { return []; }
+function updateNamSteps() {}
+var features = ['HX_CLICK', 'HX_GR'];
+var dspBoxes = [];
+var namOn = {checked: true, disabled: false};
+var slotRadios = [{checked: true, value: '2', disabled: false, parentNode: {hidden: false, classList: {toggle() {}}}}];
+var dsp = {slots: config.slots, room: {0: 4000, 1: 3000, 2: 2528, 3: 1000}, cost: {HX_CLICK: 500, HX_GR: 600}};
+""" + functions + r"""
+dspDraw();
+process.stdout.write(JSON.stringify({disabled: namOn.disabled, used: JSON.parse($('roomText').textContent)}));
+"""
+    result = subprocess.run(["node", "-e", script, json.dumps({"slots": slots})],
+                            capture_output=True, text=True, check=True)
+    state = json.loads(result.stdout)
+    assert state["disabled"] is fixed
+    assert state["used"]["left"] == 2528 - 1100
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_device_switch_cancels_the_active_build():
+    page = (ROOT / "web/index.html").read_text()
+    token = re.search(r"var buildId = \d+;", page)
+    assert token
+    handler = page.split('  $("device").addEventListener("change", function (e) {', 1)[1].split('\n  });', 1)[0]
+    script = r"""
+var device, busy = true, built = {}, shown = {}, lang = 'en';
+var stopped = false, activeWorker = {terminate() { stopped = true; }};
+var boxes = [{}, {}, {checked: true}], caches = {HX_Stomp_XL: {unit: 'HX_Stomp_XL'}};
+var elements = {};
+function $(id) { return elements[id] ||= {classList: {remove() {}}, style: {}, hash: '#section'}; }
+function checkStep1() {}
+function ramReady() {}
+function setLang() {}
+function applyCache(cache) { globalThis.applied = cache.unit; }
+""" + token.group() + "\n(function (e) {" + handler + r"""
+})({target: {value: 'HX_Stomp_XL'}});
+process.stdout.write(JSON.stringify({device, buildId, stopped, busy, applied: globalThis.applied}));
+"""
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == {"device": "HX_Stomp_XL", "buildId": 1, "stopped": True,
+                                         "busy": False, "applied": "HX_Stomp_XL"}
+
+
 def test_download_is_named_by_the_release():
     # the built file downloads as "HXtra_v1.2.0.hxf", the page names it the same before the build, and no copy names the old file
     page = (ROOT / "web/index.html").read_text()
@@ -325,7 +378,10 @@ def test_xl_cache_offers_only_xl_ported_features_with_nam():
     for offered in (m4cache.web_flags, m4cache.web_options, m4cache.web_dsp):
         assert set(offered(xl)) == set(offered(m4cache.UNIT))
     combos = m4cache.combos(xl)
-    assert {m4cache.flag_env(combo)[block3.VAR] for combo in combos} == set(map(str, block3.SLOTS))
+    assert len(combos) == 2
+    assert {m4cache.flag_env(combo)[block3.VAR] for combo in combos} == {'2'}
+    assert all(set(m4cache.web_flags(xl) + m4cache.web_dsp(xl)) <= set(combo) for combo in combos)
+    assert sum('HX_REAL_NAMES' in combo for combo in combos) == 1
 
 
 def test_release_requires_both_units_for_website_parity():
@@ -403,6 +459,23 @@ build(new ArrayBuffer(1), [], Number(process.argv[3]), process.argv[2]).then(
     result = subprocess.run(["node", "-e", script, str(ROOT / "web/firmware-worker.js"), selected, str(slots),
                              str(cache).lower()], capture_output=True, text=True, check=True)
     assert expected in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_worker_rejects_missing_required_xl_features():
+    script = r"""
+const vm = require('vm'), fs = require('fs');
+global.self = {postMessage() {}};
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
+boot = async () => ({FS: {writeFile() {}}, runPython() { return '329e3a26d60d3de1988b6785fa833ee1'; }});
+caches.HX_Stomp_XL = {features: ['HX_BPM', 'HX_CLICK'], options: ['HX_REAL_NAMES'],
+                       dsp: {features: [], slots: [2], room: {2: 2528}, cost: {HX_CLICK: 500}}};
+build(new ArrayBuffer(1), ['HX_BPM'], 2, 'HX_Stomp_XL').then(
+  () => { process.exitCode = 1; }, error => { console.log(error.message); });
+"""
+    result = subprocess.run(["node", "-e", script, str(ROOT / "web/firmware-worker.js")],
+                            capture_output=True, text=True, check=True)
+    assert "requires every default XL feature" in result.stdout
 
 
 @pytest.mark.firmware

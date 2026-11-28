@@ -8,7 +8,8 @@ features that fits beside it, tools/block3.py, with each set of the other opt-in
 file with NAM A2 Lite added, and without it for HX_NAM_SLOTS=0: the features' code reads addresses in it), keeping what every
 module assembled to (keyed by m4asm.key: a module's .inc differs with the other features built). Then it builds each
 combination with build.py through those modules, as the page does, to pin its MD5, so a module missing fails here, not on
-the page. The page reads the room and the costs from "dsp". tools/release.py attaches the file to the GitHub release, and
+the page. XL releases have two combinations: every supported feature with two NAM slots, and Real Names off or on.
+The page reads the room and the costs from "dsp". tools/release.py attaches the file to the GitHub release, and
 the Pages workflow publishes it next to the page; m4asm reads it when HX_M4_CACHE names it.
 """
 import argparse
@@ -154,6 +155,13 @@ def combos(unit=UNIT):
     """The flags of every combination the page offers: each NAM slot count with each set of DSP features that fits beside it,
     with each set of the other opt-ins."""
     flags, options, dsp = web_flags(unit), web_options(unit), web_dsp(unit)
+    if unit == XL_UNIT:
+        options = [option for option in options if option == 'HX_REAL_NAMES']
+        if not options:
+            raise SystemExit('m4cache: XL releases require the Real Names option')
+        if not block3.fits(2, dsp):
+            raise SystemExit('m4cache: XL DSP features do not fit beside two NAM slots')
+        return [flags + dsp + o + [slots_flag(2)] for o in subsets(options)]
     slots = block3.SLOTS
     return [flags + d + o + [slots_flag(s)] for s in slots for d in subsets(dsp) if block3.fits(s, d)
             for o in subsets(options)]
@@ -165,6 +173,10 @@ def make(stock, release=None, unit=UNIT):
     if unit not in (UNIT, XL_UNIT):
         raise SystemExit(f'm4cache: unknown device {unit!r}')
     flags, options, dsp = web_flags(unit), web_options(unit), web_dsp(unit)
+    costs = {f: block3.cost(f) for f in dsp}
+    if unit == XL_UNIT:
+        options = [option for option in options if option == 'HX_REAL_NAMES']
+        flags, dsp = flags + dsp, []
     every = combos(unit)
     # a module's key covers its .inc, which differs with the other features built, so each combination keeps its own
     mods = {}
@@ -176,10 +188,10 @@ def make(stock, release=None, unit=UNIT):
         with open(cache, 'w') as f:
             json.dump({'modules': mods}, f)
         md5 = {combo_key(c): built_md5(stock, c, cache, unit) for c in every}
-    slots = block3.SLOTS
+    slots = (2,) if unit == XL_UNIT else block3.SLOTS
     return {'release': release, 'unit': unit, 'features': flags, 'options': options,
             'dsp': {'features': dsp, 'slots': list(slots), 'room': {str(s): block3.words(s) for s in slots},
-                    'cost': {f: block3.cost(f) for f in dsp}},
+                'cost': costs},
             'md5': {unit: md5}, 'modules': mods}
 
 

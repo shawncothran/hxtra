@@ -2824,6 +2824,7 @@ var LANG_NAMES = {
   var STEPS = 6;
   var built = null;           // { blob, file }
   var activeWorker = null;
+  var buildId = 0;
   var busy = false;
   var shown = null;           // the status on screen: { kind, title: [key, vars], text: [key, vars] }
   var canBuild = location.protocol === "http:" || location.protocol === "https:";
@@ -2921,7 +2922,7 @@ var LANG_NAMES = {
     if (!dsp) return;
     var total = Math.max.apply(null, dsp.slots.map(function (s) { return dsp.room[s]; }));
     var nam = total - dsp.room[slotsPicked()];
-    var used = ticked(dspBoxes, "dsp").reduce(function (n, f) { return n + dsp.cost[f]; }, 0);
+    var used = features.concat(ticked(dspBoxes, "dsp")).reduce(function (n, f) { return n + (dsp.cost[f] || 0); }, 0);
     var left = total - nam - used;
     $("roomNam").style.width = 100 * nam / total + "%";
     $("roomUsed").style.width = Math.min(100, 100 * used / total) + "%";
@@ -2938,7 +2939,7 @@ var LANG_NAMES = {
       r.disabled = !namOn.checked || (!r.checked && dsp.room[r.value] < used);
       r.parentNode.classList.toggle("full", namOn.checked && r.disabled);
     });
-    namOn.disabled = !namOn.checked && !fits.length;
+    namOn.disabled = dsp.slots.indexOf(0) < 0 || (!namOn.checked && !fits.length);
     $("nam").classList.toggle("full", namOn.disabled);
     updateNamSteps();
   }
@@ -2947,7 +2948,7 @@ var LANG_NAMES = {
     o.querySelector("input").addEventListener("change", dspDraw);
   });
   namOn.addEventListener("change", function () {
-    var used = dsp ? ticked(dspBoxes, "dsp").reduce(function (n, f) { return n + dsp.cost[f]; }, 0) : 0;
+    var used = dsp ? features.concat(ticked(dspBoxes, "dsp")).reduce(function (n, f) { return n + (dsp.cost[f] || 0); }, 0) : 0;
     if (dsp && namOn.checked && dsp.room[slotsPicked()] < used) {      // the picked count no longer fits: the most that do
       var r = slotRadios.filter(function (r) { return !r.parentNode.hidden && dsp.room[r.value] >= used; })[0];
       if (r) r.checked = true;

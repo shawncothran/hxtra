@@ -93,8 +93,10 @@ def test_make_xl_uses_nam_slots_and_xl_profile(monkeypatch):
     import block3
     monkeypatch.delenv(m4asm.CACHE, raising=False)
     monkeypatch.setattr(m4cache, "web_flags", lambda unit: ["HX_B"])
-    monkeypatch.setattr(m4cache, "web_options", lambda unit: [])
-    monkeypatch.setattr(m4cache, "web_dsp", lambda unit: [])
+    monkeypatch.setattr(m4cache, "web_options", lambda unit: ["HX_REAL_NAMES", "HX_OTHER"])
+    monkeypatch.setattr(m4cache, "web_dsp", lambda unit: ["HX_D"])
+    monkeypatch.setattr(block3, "fits", lambda slots, flags: slots == 2 and flags == ["HX_D"])
+    monkeypatch.setattr(block3, "cost", lambda flag: 30)
     seen = []
 
     def modules(stock, flags, nam=True, out=None, unit=m4cache.UNIT):
@@ -104,9 +106,28 @@ def test_make_xl_uses_nam_slots_and_xl_profile(monkeypatch):
     monkeypatch.setattr(m4cache, "modules", modules)
     monkeypatch.setattr(m4cache, "built_md5", lambda stock, flags, cache, unit: unit)
     result = m4cache.make("stock-xl.hxf", "v1", m4cache.XL_UNIT)
-    assert seen == [(slots != 0, m4cache.XL_UNIT, str(slots)) for slots in block3.SLOTS]
-    assert result["unit"] == m4cache.XL_UNIT and result["dsp"]["slots"] == list(block3.SLOTS)
-    assert list(result["md5"][m4cache.XL_UNIT].values()) == [m4cache.XL_UNIT] * len(block3.SLOTS)
+    assert seen == [(True, m4cache.XL_UNIT, "2")] * 2
+    assert result["unit"] == m4cache.XL_UNIT and result["dsp"]["slots"] == [2]
+    assert result["features"] == ["HX_B", "HX_D"] and result["options"] == ["HX_REAL_NAMES"]
+    assert result["dsp"]["features"] == []
+    assert result["dsp"]["cost"] == {"HX_D": 30}
+    assert set(result["md5"][m4cache.XL_UNIT]) == {
+        m4cache.combo_key(["HX_B", "HX_D", "HX_NAM_SLOTS=2"]),
+        m4cache.combo_key(["HX_B", "HX_D", "HX_REAL_NAMES", "HX_NAM_SLOTS=2"]),
+    }
+
+
+def test_xl_rejects_all_features_if_they_do_not_fit(monkeypatch):
+    import block3
+    monkeypatch.setattr(block3, "fits", lambda slots, flags: False)
+    with pytest.raises(SystemExit, match="XL DSP features do not fit beside two NAM slots"):
+        m4cache.combos(m4cache.XL_UNIT)
+
+
+def test_xl_requires_the_real_names_option(monkeypatch):
+    monkeypatch.setattr(m4cache, "web_options", lambda unit: [])
+    with pytest.raises(SystemExit, match="XL releases require the Real Names option"):
+        m4cache.combos(m4cache.XL_UNIT)
 
 
 def test_modules_assembles_a_module_once(monkeypatch):

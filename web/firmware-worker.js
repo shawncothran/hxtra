@@ -257,6 +257,8 @@ async function build(stock, flags, slots, requestedUnit) {
       throw new Error("This release has no feature " + f + ".");
     }
   });
+  if (unit === "HX_Stomp_XL" && cache.features.some(function (f) { return flags.indexOf(f) < 0; }))
+    throw new Error("This release requires every default XL feature.");
   if (dsp.slots.indexOf(slots) < 0) throw new Error("This release has no build with " + slots + " NAM slots.");
   var need = flags.reduce(function (n, f) { return n + (dsp.cost[f] || 0); }, 0);
   if (cache && need > dsp.room[slots]) {
