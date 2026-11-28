@@ -284,13 +284,15 @@ def test_each_feature_is_a_category_with_its_title_and_icon():
     assert names == [b'Ins/Outs', b'Preferences', b'Footswitches', b'EXP Pedals', b'MIDI/Tempo', b'Displays', b'BPM Display',
                      b'Breathing Line']
     assert struct.unpack('<8I', read(arrays['vals'], 32))[6:] == (pm.ICONS['Icon_Tempo'], pm.ICONS['Icon_DualIR'])
-    assert struct.unpack('<8I', read(arrays['pages'], 32)) == (3, 4, 5, 1, 4, 1, 1, 1)
+    assert struct.unpack('<8I', read(arrays['pages'], 32)) == (3, 4, 5, 1, 4, 1, 1, 2)
     assert read(pm.NAV_CMP, 2) == b'\x07\x2b' and read(pm.NAV_WRAP, 2) == b'\x07\x21'
     ids = setting_ids.by_name()
     for site in pm.SITES:
         assert struct.unpack('<3H', read(page_table(read, 6, site), 6)) == tuple(ids[f'bpm.{k}'] for k in ('font', 'color', 'dot'))
         assert struct.unpack('<3H', read(page_table(read, 7, site), 6)) == tuple(
             ids[f'breathing_line.{k}'] for k in ('color', 'motion', 'speed'))
+        assert struct.unpack('<3H', read(page_table(read, 7, site) + 6, 6)) == (
+            ids['breathing_line.thickness'], pm.EMPTY_SLOT, pm.EMPTY_SLOT)
 
 
 def test_stock_uses_finds_reads_writes_and_loops():

@@ -127,6 +127,7 @@ bl_booting:
     ldr r5, [r9]
     cmp r5, #1
     bne bl_stopped
+    mov r2, r4
 .if LINE_XL
     ldr r0, =LINE_EDIT_SEGMENTS
     movs r1, #2
@@ -143,6 +144,11 @@ bl_stopped:
 bl_animate:
     movs r0, #1
     str r0, [r9]
+    movs r0, #SETTING_BREATHING_LINE_THICKNESS
+    movs r1, #SETTING_BREATHING_LINE_THICKNESS_MAX
+    movs r2, #SETTING_BREATHING_LINE_THICKNESS_DEFAULT
+    bl hxtra_setting_get
+    str r0, [sp, #12]
     movs r0, #SETTING_BREATHING_LINE_COLOR
     movs r1, #SETTING_BREATHING_LINE_COLOR_MAX
     movs r2, #SETTING_BREATHING_LINE_COLOR_DEFAULT
@@ -181,6 +187,8 @@ bl_same_cycle:
     lsr.w r8, r2, #16
     ldr r3, =LINE_LOCK              @ the widget lock, as the stock paint takes it
     blx r3
+    mov r0, r4
+    bl bl_clear_thick
 .if LINE_XL
     ldr r0, [sp, #16]
     cbnz r0, bl_xl_edit_divider
@@ -252,7 +260,23 @@ bl_xl_widget_ready:
     bl bl_colour
     str r0, [sp, #4]
     ldr.w r0, [r11, #0x10]          @ height
+    ldr r1, [sp, #12]
+    adds r0, r0, r1
     str r0, [sp]
+    cbz r1, bl_draw_strip
+    mov r3, r0
+    mov r1, r5
+    ldr.w r2, [r11, #8]
+.if LINE_XL
+    ldr r0, [sp, #16]
+    cbnz r0, bl_thick_y_ready
+    adds r2, #LINE_PLAY_Y_OFFSET
+bl_thick_y_ready:
+.endif
+    mov r0, r4
+    ldr r12, [sp, #4]
+    bl bl_save_thick
+bl_draw_strip:
     movs r0, #6                     @ x at the left edge, y at the top, as the stock segments are placed
     str r0, [sp, #8]
 .if LINE_XL
@@ -289,8 +313,11 @@ bl_restore:                         @ Type turned Off: the stock segments marked
     push {r4-r6, lr}
     mov r4, r0
     mov r5, r1
+    mov r6, r2
     ldr r3, =LINE_LOCK
     blx r3
+    mov r0, r6
+    bl bl_clear_thick
     movs r2, #1
 bl_dirty:
     ldr r3, [r4, #0x18]             @ the node
@@ -305,8 +332,11 @@ bl_next_node:
     pop {r4-r6, pc}
 .else
     push {r4, lr}
+    mov r4, r2
     ldr r3, =0x28e24971
     blx r3
+    mov r0, r4
+    bl bl_clear_thick
     ldr r0, =LINE_PLAY_SEGMENTS
     movs r1, #4
     movs r2, #1
@@ -320,6 +350,102 @@ bl_dirty:
     blx r3
     pop {r4, pc}
 .endif
+
+bl_clear_thick:
+    push {r4-r11, lr}
+    sub sp, #4
+    mov r4, r0
+    adr.w r5, bl_thick_frame
+    ldr r11, [r5]
+    movs r0, #0
+    str r0, [r5]
+    adr.w r5, bl_thick_data
+    movs r6, #0
+bl_clear_strip:
+    ldrb r7, [r5, #2]
+    cbz r7, bl_clear_next
+    movs r0, #0
+    strb r0, [r5, #2]
+    cmp r4, r11
+    bne bl_clear_next
+    ldrh r8, [r5]
+    ldrh r9, [r5, #4]
+    movs r10, #0
+bl_clear_column:
+    lsls r0, r6, #2
+    add r0, r10
+    movs r1, #240
+    mla r0, r1, r0, r9
+    add.w r0, r4, r0, lsl #1
+    movs r1, #12
+    mla r1, r10, r1, r5
+    adds r1, #8
+    mov r2, r7
+bl_clear_row:
+    ldrh r3, [r0]
+    cmp r3, r8
+    itt eq
+    ldrheq r3, [r1]
+    strheq r3, [r0]
+    subs r0, #2
+    adds r1, #2
+    subs r2, #1
+    bne bl_clear_row
+    adds r10, #1
+    cmp r10, #4
+    bne bl_clear_column
+bl_clear_next:
+    adds r5, #56
+    adds r6, #1
+    cmp r6, #STRIPS
+    bne bl_clear_strip
+    add sp, #4
+    pop {r4-r11, pc}
+
+bl_save_thick:
+    push {r4-r11, lr}
+    sub sp, #4
+    mov r4, r0
+    mov r5, r1
+    mov r6, r2
+    mov r7, r3
+    adr.w r0, bl_thick_frame
+    str r4, [r0]
+    adr.w r8, bl_thick_data
+    movs r0, #56
+    mla r8, r5, r0, r8
+    ubfx r0, r12, #3, #5
+    lsls r0, #11
+    ubfx r1, r12, #10, #6
+    orr.w r0, r0, r1, lsl #5
+    ubfx r1, r12, #19, #5
+    orrs r0, r1
+    strh r0, [r8]
+    strb r7, [r8, #2]
+    strh r6, [r8, #4]
+    movs r9, #0
+bl_save_column:
+    lsls r0, r5, #2
+    add r0, r9
+    movs r1, #240
+    mla r0, r1, r0, r6
+    add.w r0, r4, r0, lsl #1
+    movs r1, #12
+    mla r1, r9, r1, r8
+    adds r1, #8
+    mov r2, r7
+bl_save_row:
+    ldrh r3, [r0]
+    strh r3, [r1]
+    subs r0, #2
+    adds r1, #2
+    subs r2, #1
+    bne bl_save_row
+    adds r9, #1
+    cmp r9, #4
+    bne bl_save_column
+    add sp, #4
+    pop {r4-r11, pc}
 
 .if LINE_XL
 bl_valid_divider:                   @ r11 a candidate XL divider widget -> r0 1 when it is visible and has stock divider geometry
@@ -747,3 +873,8 @@ bl_sine:                            @ 128 + 127.5 sin(2 pi i / 256), rounded
     .byte 10, 11, 12, 14, 15, 17, 18, 20, 21, 23, 25, 27, 29, 31, 33, 35
     .byte 37, 40, 42, 44, 47, 49, 52, 54, 57, 59, 62, 65, 67, 70, 73, 76
     .byte 79, 82, 85, 88, 90, 93, 97, 100, 103, 106, 109, 112, 115, 118, 121, 124
+.balign 4
+bl_thick_frame:
+    .word 0
+bl_thick_data:
+    .space STRIPS * 56

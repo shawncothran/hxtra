@@ -3,6 +3,7 @@ the clock, and a run's results and clean-up, against a fake mirror session and a
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -195,6 +196,16 @@ def test_a_foot_hold_touches_with_the_press_and_holds_both():
     events = [[(b[i], b[i + 1], b[i + 4]) for i in range(0, len(b), 8)] for _, _, b in u.s.sent]
     assert events == [[(1, 9, 1), (1, 12, 1)], [(1, 9, 5), (1, 12, 5)], [(1, 12, 2), (1, 9, 2)]], 'touch code 9, press code 12'
     assert looked == [2], 'looked at the screen right after the holds'
+
+
+def test_a_foot_hold_uses_xl_event_codes():
+    session = FakeSession()
+    session.link = SimpleNamespace(dev=SimpleNamespace(idProduct=0x4253))
+    unit = dt.Unit(session, FakeOcr(HOME))
+    dt.foot_hold(unit, 'fs4')
+    events = [[(blob[index], blob[index + 1], blob[index + 4]) for index in range(0, len(blob), 8)]
+              for _, _, blob in session.sent]
+    assert events == [[(1, 12, 1), (1, 20, 1)], [(1, 12, 5), (1, 20, 5)], [(1, 20, 2), (1, 12, 2)]]
 
 
 def test_a_run_reports_each_case_saves_a_failures_screen_and_reloads_the_preset_it_found(tmp_path, monkeypatch):
