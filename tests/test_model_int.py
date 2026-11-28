@@ -2,6 +2,7 @@
 
 The firmware tests run the parameter value formatter of the stock and of the patched Entry 0 in unicorn, with only its metadata
 lookup stubbed, and read the text it prints."""
+import os
 import struct
 
 import pytest
@@ -28,14 +29,14 @@ def test_the_dynamic_list_entry_is_the_float_switchs_twelfth():
     assert (X.NO_DECIMALS - X.TBH) % 2 == 0 and 0 < (X.NO_DECIMALS - X.TBH) // 2 < 0x10000, 'a forward TBH offset'
 
 
-def display_types():
+def display_types(archive=None):
     """{displayType string: its Entry 3 string index} for every displayType a stock parameter has."""
-    info = pa.parse_entry3_full(pa.get_entry_swapped(stock(), 3))
+    info = pa.parse_entry3_full(pa.get_entry_swapped(archive if archive is not None else stock(), 3))
     names = {p['meta']['displayType'] for m in info['models'] for p in m['params'] if 'displayType' in p['meta']}
     return {n: info['strings'].index(n) for n in names}
 
 
-def formatter(m4emu, e0):
+def formatter(m4emu, e0, model=X, lookup_address=LOOKUP):
     """fmt(display type string index or None, value, lo, hi) -> the text the Entry 0 e0's formatter prints for a float parameter."""
     segs = pa._parse_e0_segments(e0)
     m = m4emu.M4(b'', 0x28000000)
@@ -48,7 +49,7 @@ def formatter(m4emu, e0):
         if found:
             m.u32(m.reg('r3') + 4, shown['type'])
         m.reg('r0', int(found))
-    m.stub(LOOKUP, lookup)
+    m.stub(lookup_address, lookup)
     m.u32(CTX + 0xc, CTX + 0x80)
 
     def fmt(display_type, value, lo=0.0, hi=1000.0):
@@ -59,7 +60,7 @@ def formatter(m4emu, e0):
         m.write(BUF, bytes(BUF_LEN))
         m.u32(m4emu.STACK_TOP, BUF_LEN)
         m.u32(m4emu.STACK_TOP + 4, 1)
-        assert m.call(X.FORMAT, CTX, PARAM, VALUE, BUF) == 0
+        assert m.call(model.FORMAT, CTX, PARAM, VALUE, BUF) == 0
         return m.read(BUF, BUF_LEN).split(b'\0')[0].decode()
     return fmt
 
@@ -97,3 +98,23 @@ def test_model_int_runs_once_and_only_where_it_knows_the_addresses():
     struct.pack_into('<I', xl, pa._parse_e0_segments(xl)[6][0] + 4, 0x28d92230)
     with pytest.raises(SystemExit, match='not the stock'):
         pa.model_int_entry0(bytes(xl))
+
+
+@pytest.mark.firmware
+def test_xl_model_shows_the_slot_the_kernel_plays(m4emu):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    entry = pa.get_entry_swapped(archive, 0)
+    model = pa.MODEL_INT[0x28d92230]
+    stock_fmt = formatter(m4emu, entry, model, 0x28df96dc)
+    fmt = formatter(m4emu, pa.model_int_entry0(entry)[0], model, 0x28df96dc)
+    types = display_types(archive)
+    dynamic_list = types['dynamicList']
+    assert stock_fmt(dynamic_list, 4.0) == '4.0'
+    assert [fmt(dynamic_list, value) for value in (0.6, 4.0, 7.874, 128.0)] == ['0', '4', '7', '128']
+    cases = [(kind, value, low, high) for kind in [None, *(index for name, index in types.items()
+                                                          if name not in ('dynamicList', 'micPosition'))]
+             for value, low, high in ((0.5, 0.0, 1.0), (4.0, 0.0, 1000.0), (650.0, 150.0, 3000.0))]
+    assert [fmt(*case) for case in cases] == [stock_fmt(*case) for case in cases]

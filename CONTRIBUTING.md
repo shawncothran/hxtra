@@ -41,7 +41,9 @@ For maintainers.
 On a Mac, from a clean checkout of the pushed commit to release (usually `main`):
 
 ```sh
-python3 tools/release.py path/to/HX_Stomp_v3.80.0_0x103966115.hxf v1.0.0
+python3 tools/release.py path/to/HX_Stomp_v3.80.0_0x103966115.hxf v1.0.0 --xl-stock path/to/HX_Stomp_XL_v3.80.0_0x103966115.hxf
 ```
 
-It makes the release's `m4cache.json` (it builds every combination of NAM slot count, DSP features that fit and other opt-ins to pin each one's MD5, about 20 s a build), then creates the GitHub release `v1.0.0` of that commit with the file attached (`gh release create`, notes generated from the pull requests). Publishing the release starts `.github/workflows/pages.yml`, which publishes the setup page of that tag with the release's `m4cache.json`. `--dry-run` only makes `build/m4cache.json`. It refuses a tag the boot text doesn't show (`tools/features/splash.py` `TEXT`), a checkout with changes, and a commit that isn't pushed. To publish a release's page again, run the workflow by hand with its tag. The repository's Pages are set to deploy from workflows, and its `github-pages` environment lets `v*` tags deploy as well as `main`.
+It makes the release's HX Stomp `m4cache.json` (it builds every combination of NAM slot count, DSP features that fit and other opt-ins to pin each one's MD5, about 20 s a build) and HX Stomp XL `m4cache-xl.json`, then creates the GitHub release `v1.0.0` of that commit with both files attached (`gh release create`, notes generated from the pull requests). Publishing the release starts `.github/workflows/pages.yml`, which publishes the setup page of that tag with both caches. `--dry-run` only makes the caches. It refuses a tag the boot text doesn't show (`tools/features/splash.py` `TEXT`), a checkout with changes, and a commit that isn't pushed. To publish a release's page again, run the workflow by hand with its tag. The repository's Pages are set to deploy from workflows, and its `github-pages` environment lets `v*` tags deploy as well as `main`.
+
+Both stock files are required so the release includes caches for both units. The HX Stomp XL cache has exactly two builds: all supported web features with two NAM slots, with Real block names off or on. The HX Stomp cache keeps its full set of combinations. With `--dry-run`, both caches are written under `build/` without publishing.

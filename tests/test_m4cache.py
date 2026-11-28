@@ -58,19 +58,21 @@ def test_web_dsp_are_the_features_sharing_block_3():
 def test_make_pins_every_combination_that_fits(monkeypatch):
     import block3
     monkeypatch.delenv(m4asm.CACHE, raising=False)
-    monkeypatch.setattr(m4cache, "web_flags", lambda: ["HX_B", "HX_A"])
-    monkeypatch.setattr(m4cache, "web_options", lambda: ["HX_X"])
-    monkeypatch.setattr(m4cache, "web_dsp", lambda: ["HX_D", "HX_E"])
+    monkeypatch.setattr(m4cache, "web_flags", lambda unit: ["HX_B", "HX_A"])
+    monkeypatch.setattr(m4cache, "web_options", lambda unit: ["HX_X"])
+    monkeypatch.setattr(m4cache, "web_dsp", lambda unit: ["HX_D", "HX_E"])
     monkeypatch.setattr(block3, "SLOTS", (2, 0))
     monkeypatch.setattr(block3, "cost", {"HX_D": 30, "HX_E": 40}.get)
     monkeypatch.setattr(block3, "words", {2: 50, 0: 100}.get)
     built = {}
 
-    def built_md5(stock, flags, cache=None):
+    def built_md5(stock, flags, cache=None, unit=m4cache.UNIT):
+        assert unit == m4cache.UNIT
         built[m4cache.combo_key(flags)] = json.load(open(cache))["modules"]
         return m4cache.combo_key(flags)
 
-    def modules(stock, flags, nam=True, out=None):
+    def modules(stock, flags, nam=True, out=None, unit=m4cache.UNIT):
+        assert unit == m4cache.UNIT
         out[m4cache.combo_key(flags)] = nam
         return out
     monkeypatch.setattr(m4cache, "built_md5", built_md5)
@@ -87,6 +89,47 @@ def test_make_pins_every_combination_that_fits(monkeypatch):
     assert built == {k: cache["modules"] for k in want}
 
 
+def test_make_xl_uses_nam_slots_and_xl_profile(monkeypatch):
+    import block3
+    monkeypatch.delenv(m4asm.CACHE, raising=False)
+    monkeypatch.setattr(m4cache, "web_flags", lambda unit: ["HX_B"])
+    monkeypatch.setattr(m4cache, "web_options", lambda unit: ["HX_REAL_NAMES", "HX_OTHER"])
+    monkeypatch.setattr(m4cache, "web_dsp", lambda unit: ["HX_D"])
+    monkeypatch.setattr(block3, "fits", lambda slots, flags: slots == 2 and flags == ["HX_D"])
+    monkeypatch.setattr(block3, "cost", lambda flag: 30)
+    seen = []
+
+    def modules(stock, flags, nam=True, out=None, unit=m4cache.UNIT):
+        seen.append((nam, unit, m4cache.flag_env(flags)["HX_NAM_SLOTS"]))
+        return out
+
+    monkeypatch.setattr(m4cache, "modules", modules)
+    monkeypatch.setattr(m4cache, "built_md5", lambda stock, flags, cache, unit: unit)
+    result = m4cache.make("stock-xl.hxf", "v1", m4cache.XL_UNIT)
+    assert seen == [(True, m4cache.XL_UNIT, "2")] * 2
+    assert result["unit"] == m4cache.XL_UNIT and result["dsp"]["slots"] == [2]
+    assert result["features"] == ["HX_B", "HX_D"] and result["options"] == ["HX_REAL_NAMES"]
+    assert result["dsp"]["features"] == []
+    assert result["dsp"]["cost"] == {"HX_D": 30}
+    assert set(result["md5"][m4cache.XL_UNIT]) == {
+        m4cache.combo_key(["HX_B", "HX_D", "HX_NAM_SLOTS=2"]),
+        m4cache.combo_key(["HX_B", "HX_D", "HX_REAL_NAMES", "HX_NAM_SLOTS=2"]),
+    }
+
+
+def test_xl_rejects_all_features_if_they_do_not_fit(monkeypatch):
+    import block3
+    monkeypatch.setattr(block3, "fits", lambda slots, flags: False)
+    with pytest.raises(SystemExit, match="XL DSP features do not fit beside two NAM slots"):
+        m4cache.combos(m4cache.XL_UNIT)
+
+
+def test_xl_requires_the_real_names_option(monkeypatch):
+    monkeypatch.setattr(m4cache, "web_options", lambda unit: [])
+    with pytest.raises(SystemExit, match="XL releases require the Real Names option"):
+        m4cache.combos(m4cache.XL_UNIT)
+
+
 def test_modules_assembles_a_module_once(monkeypatch):
     seen = []
 
@@ -94,7 +137,8 @@ def test_modules_assembles_a_module_once(monkeypatch):
         seen.append(src)
         return b"\x00\xbf", {"go": 0}
 
-    def menu_entries(load, env):
+    def menu_entries(load, env, layout):
+        assert layout is m4cache.pm.STOMP_MENU
         assert os.environ["HX_GR"] == "1" and os.environ["HX_NAM_SLOTS"] == "2" and "HX_OLD" not in os.environ
         assert env == {"HX_GR": "1", "HX_NAM_SLOTS": "2"}
         for src in ("a.s", "b.s", "a.s"):
@@ -102,7 +146,7 @@ def test_modules_assembles_a_module_once(monkeypatch):
     monkeypatch.setenv("HX_OLD", "1")
     monkeypatch.setattr(m4asm, "assemble_module", assemble)
     monkeypatch.setattr(m4asm, "key", lambda src, include=(): src)
-    monkeypatch.setattr(m4cache, "image", lambda stock, nam: b"")
+    monkeypatch.setattr(m4cache, "image", lambda stock, nam, unit: b"")
     monkeypatch.setattr(m4cache.pm, "menu_entries", menu_entries)
     out = m4cache.modules("stock.hxf", ["HX_GR", "HX_NAM_SLOTS=2"], out={"b.s": {"code": "00bf", "symbols": {"go": 0}}})
     assert seen == ["a.s"] and sorted(out) == ["a.s", "b.s"]

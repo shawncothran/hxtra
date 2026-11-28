@@ -1,14 +1,9 @@
 // firmware-worker.js - build.py in the browser: the stock .hxf in, the HXtra
-// .hxf out, with NAM A2 Lite and the release's HXtra features, for the
-// HX Stomp only. Pyodide runs the repository's own Python tools, the same
+// .hxf out, with the selected device's supported HXtra features. Pyodide runs the repository's own Python tools, the same
 // commands build.py runs (without --check, the simulator run, which takes
 // minutes here). The features' M4 code comes from the release's m4cache.json
 // (tools/m4cache.py), next to the page, since there is no clang here. The
-// result's MD5 is then compared with the pinned build: tests/test_firmware.py's
-// with no features, the release's with them. A match means the
-// bytes are the very file that build makes on a desktop.
-//
-// Messages in:  { stock: ArrayBuffer, features: ["HX_BPM", ...], slots: 3 | 2 | 1 | 0 (NAM A2 Lite's blocks; 0: none) }
+// Messages in:  { stock: ArrayBuffer, device: "HX_Stomp" | "HX_Stomp_XL", features: ["HX_BPM", ...], slots: 3 | 2 | 1 | 0 }
 // It also lays out the RAM run of the result (tools/hxf_ram.py plan), for
 // ramrun.js: the regions to send and the eMMC checks.
 //
@@ -24,6 +19,7 @@ var PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
 // tests/test_firmware.py's BUILT_MD5.
 var STOCK_MD5 = {
   "a2cd8f4ae56f49415380270ebc484bf1": "HX_Stomp",
+  "329e3a26d60d3de1988b6785fa833ee1": "HX_Stomp_XL",
 };
 var BUILT_MD5 = {
   "HX_Stomp": "a070c1ddaf5d656d195f16d3e784a540",
@@ -33,9 +29,17 @@ var BUILT_MD5 = {
 // command and the patch_amp.py steps, each "patch_amp.py CMD IN OUT ARGS..." on the previous output.
 // build.py's kernel(unit, slots) adds "--slots" to the kernel's command for fewer than 3 NAM slots.
 var E3_MAX = 0xf10f0;
-var KERNEL = {"HX_Stomp": ["tools/sharc/nam_multi.py", "--mid-sweep"]};
+var KERNEL = {"HX_Stomp": ["tools/sharc/nam_multi.py", "--mid-sweep"],
+              "HX_Stomp_XL": ["tools/sharc/nam_multi.py", "--mid-sweep"]};
 var STEPS = {
   "HX_Stomp": [
+    ["remove-model", "--preset-id", "555"],
+    ["add-fx-model", "--knobs", "eq", "--name", "HD2_DistNAMLite", "--display-name", "NAM A2 Lite", "--category", "distortion", "--folder", "NAM", "--preset-id", "555", "--dsp-cost", "2275", "--sdram-words", "0x5000", "--dm-words", "0x303", "--pm-words", "0x147"],
+    ["move-folder", "--name", "NAM", "--from", "2", "--to", "12"],
+    ["ir-title", "--fx-preset-id", "555", "--knob", "6"],
+    ["model-int"],
+  ],
+  "HX_Stomp_XL": [
     ["remove-model", "--preset-id", "555"],
     ["add-fx-model", "--knobs", "eq", "--name", "HD2_DistNAMLite", "--display-name", "NAM A2 Lite", "--category", "distortion", "--folder", "NAM", "--preset-id", "555", "--dsp-cost", "2275", "--sdram-words", "0x5000", "--dm-words", "0x303", "--pm-words", "0x147"],
     ["move-folder", "--name", "NAM", "--from", "2", "--to", "12"],
@@ -127,7 +131,7 @@ var SOURCES = [
   "src/sharc/main_send.asm",
 ];
 // The release's M4 code for the features (tools/m4cache.py); a page from a checkout has none, and offers no features.
-var CACHE = "m4cache.json";
+var CACHE = { HX_Stomp: "m4cache.json", HX_Stomp_XL: "m4cache-xl.json" };
 
 // One command of build.py: run a script as __main__ with argv, its folder on sys.path as `python script.py` has it.
 var DRIVER = [
@@ -148,7 +152,8 @@ var DRIVER = [
   "    return out.getvalue()",
 ].join("\n");
 
-var py = null, cache = null;
+var py = null,
+  caches = {};
 
 function post(msg, transfer) { self.postMessage(msg, transfer || []); }
 function progress(step, of, text) { post({ type: "progress", step: step, of: of, text: text }); }
@@ -164,31 +169,58 @@ async function boot() {
     if (!r.ok) throw new Error("Could not load " + path + " (" + r.status + ").");
     return [path, new Uint8Array(await r.arrayBuffer())];
   }));
-  var c = await fetch(root + CACHE, { cache: "no-cache" });
-  if (c.ok) cache = await c.json();
-  ["/repo", "/repo/tools", "/repo/tools/features", "/repo/tools/sharc", "/repo/tools/ramboot", "/repo/src", "/repo/src/m4", "/repo/src/sharc",
-   "/repo/build"].forEach(function (d) {
-    try { p.FS.mkdir(d); } catch (e) { /* exists */ }
+  await Promise.all(
+    Object.keys(CACHE).map(async function (unit) {
+      try {
+        var r = await fetch(root + CACHE[unit], { cache: "no-cache" });
+        if (r.ok) {
+          var c = await r.json();
+          if (c.unit === unit || (unit === "HX_Stomp" && !c.unit))
+            caches[unit] = c;
+        }
+      } catch (e) {
+        /* optional cache */
+      }
+    }),
+  );
+  [
+    "/repo",
+    "/repo/tools",
+    "/repo/tools/features",
+    "/repo/tools/sharc",
+    "/repo/tools/ramboot",
+    "/repo/src",
+    "/repo/src/m4",
+    "/repo/src/sharc",
+    "/repo/build",
+  ].forEach(function (d) {
+    try { p.FS.mkdir(d); } catch (e) {
+      /* exists */
+    }
   });
   files.forEach(function (f) { p.FS.writeFile("/repo/" + f[0], f[1]); });
-  if (cache) p.FS.writeFile("/repo/" + CACHE, JSON.stringify(cache));
+  Object.keys(caches).forEach(function (unit) {
+    p.FS.writeFile("/repo/" + CACHE[unit], JSON.stringify(caches[unit]));
+  });
   p.runPython(DRIVER);
   py = p;
   return p;
 }
 
 // The features' switches and the NAM slot count, as build.py's environment would have them; the M4 code from the cache.
-function setFeatures(p, flags, slots) {
+function setFeatures(p, flags, slots, cacheFile) {
   p.globals.set("flags", p.toPy(flags));
-  p.runPython([
+  p.runPython(
+    [
     "for k in [k for k in os.environ if k.startswith('HX_')]: del os.environ[k]",
     "os.environ.update({f: '1' for f in flags})",
     "os.environ['HX_NAM_SLOTS'] = '" + slots + "'",
-    "if flags: os.environ['HX_M4_CACHE'] = '/repo/" + CACHE + "'",
-  ].join("\n"));
+      "if flags: os.environ['HX_M4_CACHE'] = '/repo/" + cacheFile + "'",
+    ].join("\n"),
+  );
 }
 
-async function build(stock, flags, slots) {
+async function build(stock, flags, slots, requestedUnit) {
   var of = 6;
   progress(1, of, "Loading the build tools (about 15 MB, once)…");
   var p = await boot();
@@ -199,25 +231,40 @@ async function build(stock, flags, slots) {
   var md5 = p.runPython("import hashlib; hashlib.md5(open('/repo/build/stock.hxf','rb').read()).hexdigest()");
   var unit = STOCK_MD5[md5];
   if (!unit) {
-    throw new Error("This is not the stock HX Stomp 3.80.0 firmware, HX_Stomp_v3.80.0_0x103966115.hxf (its MD5 is " + md5 +
-                    "). HXtra is for the HX Stomp only.");
+    throw new Error(
+      "This is not the stock 3.80.0 firmware for HX Stomp or HX Stomp XL (MD5 " +
+        md5 +
+        ").",
+    );
   }
+  if (requestedUnit && requestedUnit !== unit)
+    throw new Error("This is not the stock firmware for the selected device.");
+  var cache = caches[unit] || null;
+  if (unit === "HX_Stomp_XL" && !cache)
+    throw new Error("This release has no XL feature cache yet.");
   post({ type: "log", text: "stock firmware: " + unit.replace(/_/g, " ") + " 3.80.0 (MD5 " + md5 + ")\n" });
   flags = flags || [];
   slots = cache ? (slots === undefined ? 3 : slots) : 3;
-  if (flags.length && !cache) throw new Error("This page has no feature code (" + CACHE + "): build without features.");
+  if (flags.length && !cache)
+    throw new Error(
+      "This page has no feature code (" +
+        CACHE[unit] +
+        "): build without features.",
+    );
   var dsp = (cache && cache.dsp) || { features: [], slots: [3], room: {}, cost: {} };
   flags.forEach(function (f) {
     if (cache.features.indexOf(f) < 0 && (cache.options || []).indexOf(f) < 0 && dsp.features.indexOf(f) < 0) {
       throw new Error("This release has no feature " + f + ".");
     }
   });
+  if (unit === "HX_Stomp_XL" && cache.features.some(function (f) { return flags.indexOf(f) < 0; }))
+    throw new Error("This release requires every default XL feature.");
   if (dsp.slots.indexOf(slots) < 0) throw new Error("This release has no build with " + slots + " NAM slots.");
   var need = flags.reduce(function (n, f) { return n + (dsp.cost[f] || 0); }, 0);
   if (cache && need > dsp.room[slots]) {
     throw new Error("The DSP features take " + need + " words; " + slots + " NAM slots leave " + dsp.room[slots] + ".");
   }
-  setFeatures(p, flags, slots);
+  setFeatures(p, flags, slots, CACHE[unit]);
   post({ type: "log", text: "features: " + (flags.join(" ") || "none") + "\nNAM slots: " + slots + "\n" });
 
   var run = p.globals.get("run");
@@ -239,7 +286,17 @@ async function build(stock, flags, slots) {
       if (base !== "build/stock.hxf") p.FS.unlink("/repo/" + base);
       base = out;
     });
-    step(4, "Adding NAM A2 Lite…", ["tools/patch_menu.py", base, "build/nam_lite_menu.l6ia"]);
+    step(
+      4,
+      unit === "HX_Stomp_XL" ? "Patching XL features…" : "Adding NAM A2 Lite…",
+      [
+        "tools/patch_menu.py",
+        base,
+        "build/nam_lite_menu.l6ia",
+        "--device",
+        unit,
+      ],
+    );
     if (base !== "build/stock.hxf") p.FS.unlink("/repo/" + base);
     base = "build/nam_lite_menu.l6ia";
     if (slots) {
@@ -269,15 +326,22 @@ async function build(stock, flags, slots) {
            ["tools/patch_usbmon.py", "build/nam_lite.l6ia", "build/nam_lite_usbmon.l6ia"]);
       p.FS.rename("/repo/build/nam_lite_usbmon.l6ia", "/repo/build/nam_lite.l6ia");
     }
-    if (flags.indexOf("HX_GR") >= 0) {      // last, as in build.py: every step that adds a model rebuilds the tails its knobs live in
+    if (flags.indexOf("HX_GR") >= 0) {
+      // last, as in build.py: every step that adds a model rebuilds the tails its knobs live in
       step(5, "Adding the kernel to the DSP program…",
            ["tools/patch_comp.py", "build/nam_lite.l6ia", "build/nam_lite_comp.l6ia"]);
       p.FS.rename("/repo/build/nam_lite_comp.l6ia", "/repo/build/nam_lite.l6ia");
     }
-    var report = step(6, "Checking every checksum and packing the file…",
-                      ["tools/l6ia_verify.py", "build/nam_lite.l6ia", "--e3-max", "0x" + E3_MAX.toString(16)]);
+    var verify = ["tools/l6ia_verify.py", "build/nam_lite.l6ia"];
+    if (unit === "HX_Stomp")
+      verify.push("--e3-max", "0x" + E3_MAX.toString(16));
+    var report = step(
+      6,
+      "Checking every checksum and packing the file…",
+      verify,
+    );
     if (report.indexOf("ALL OK") < 0) throw new Error("The built image failed its check.");
-    var file = "hxtra.hxf";
+    var file = unit === "HX_Stomp_XL" ? "hxtra-xl.hxf" : "hxtra.hxf";
     step(6, "Checking every checksum and packing the file…",
          ["tools/hxf.py", "pack", "build/nam_lite.l6ia", "build/" + file, "--donor", "build/stock.hxf"]);
     var ram = ramPlan(p, step, file);
@@ -287,12 +351,18 @@ async function build(stock, flags, slots) {
   var bytes = p.FS.readFile("/repo/build/" + file);
   var outMd5 = p.runPython("import hashlib; hashlib.md5(open('/repo/build/" + file + "','rb').read()).hexdigest()");
   ["stock.hxf", "nam_lite.l6ia", file].forEach(function (f) {
-    try { p.FS.unlink("/repo/build/" + f); } catch (e) { /* gone */ }
+    try { p.FS.unlink("/repo/build/" + f); } catch (e) {
+      /* gone */
+    }
   });
   var buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   var want = cache ? (cache.md5[unit] || {})[flags.concat(["HX_NAM_SLOTS=" + slots]).sort().join("+")]
       : BUILT_MD5[unit];
-  var name = "HXtra" + (cache && cache.release ? "_" + cache.release : "") + ".hxf";     // a checkout's page has no release
+  var name =
+    "HXtra" +
+    (unit === "HX_Stomp_XL" ? "_XL" : "") +
+    (cache && cache.release ? "_" + cache.release : "") +
+    ".hxf";
   post({ type: "done", unit: unit, file: name, bytes: buf, md5: outMd5, pinned: want ? outMd5 === want : null, ram: ram },
        [buf].concat(ram.regions ? ram.regions.map(function (r) { return r.bytes; }) : []));
 }
@@ -322,7 +392,7 @@ function ramPlan(p, step, file) {
 }
 
 self.onmessage = function (e) {
-  build(e.data.stock, e.data.features, e.data.slots).catch(function (err) {
+  build(e.data.stock, e.data.features, e.data.slots, e.data.device).catch(function (err) {
     post({ type: "error", text: err && err.message ? err.message : String(err) });
   });
 };

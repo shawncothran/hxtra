@@ -3,12 +3,17 @@ string of it, with the same HTML tags and {placeholders} as the English, and is 
 language menu."""
 import json
 import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.nam   # upstream NAM A2 Lite: skipped unless -m names nam (conftest.py)
+
+if shutil.which("node") is None:
+    pytest.skip("node is needed to parse the page's JavaScript translations", allow_module_level=True)
 
 PAGE = (Path(__file__).resolve().parent.parent / "web/index.html").read_text()
 
@@ -30,6 +35,11 @@ class _Page(HTMLParser):
             self.labels.append(a["data-i18n-label"])
         if tag not in self.VOID:
             self.stack.append([tag, a.get("data-i18n"), [], a.get("translate") == "no"])
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID:
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
         e = self.stack.pop()
@@ -56,11 +66,14 @@ def _page():
 
 
 BODY = _page()
-EN_TEXT = PAGE.split("// EN-BEGIN\nvar EN = ")[1].split(";\n// EN-END")[0]
-EN = json.loads(EN_TEXT)
-LANGS_TEXT = PAGE.split("// LANGS-BEGIN\nvar LANGS = ")[1].split(";\n// LANGS-END")[0]
-LANGS = json.loads(LANGS_TEXT)
-NAMES = re.findall(r"(\w+): \"", PAGE.split("var LANG_NAMES = {")[1].split("};")[0])
+TRANSLATIONS = PAGE.split("// EN-BEGIN", 1)[1].split("</script>", 1)[0]
+VALUES = json.loads(subprocess.run(
+    ["node", "-e", 'const vm = require("vm"), fs = require("fs"); '
+     'const context = {}; vm.runInNewContext(fs.readFileSync(0, "utf8"), context); '
+     'process.stdout.write(JSON.stringify([context.EN, context.LANGS, context.LANG_NAMES]));'],
+    input=TRANSLATIONS, text=True, capture_output=True, check=True).stdout)
+EN, LANGS, LANG_NAMES = VALUES
+NAMES = list(LANG_NAMES)
 
 
 def tags(s):
@@ -69,14 +82,6 @@ def tags(s):
 
 def placeholders(s):
     return sorted(re.findall(r"\{\w+\}", s))
-
-
-def test_translations_have_one_string_a_line():
-    """So PRs editing different strings don't conflict: EN and LANGS as json.dumps(..., ensure_ascii=False, indent=2) writes them."""
-    assert EN_TEXT == json.dumps(EN, ensure_ascii=False, indent=2), \
-        "EN is not one string a line: rewrite it with json.dumps(EN, ensure_ascii=False, indent=2)"
-    assert LANGS_TEXT == json.dumps(LANGS, ensure_ascii=False, indent=2), \
-        "LANGS is not one string a line: rewrite it with json.dumps(LANGS, ensure_ascii=False, indent=2)"
 
 
 def test_page_text_comes_from_en():
@@ -94,6 +99,20 @@ def test_no_words_outside_translations():
 
 def test_menu_lists_every_language():
     assert NAMES[0] == "en" and sorted(NAMES[1:]) == sorted(LANGS) and len(NAMES) == 10
+
+
+def test_compatibility_message_names_both_units_for_each_selection():
+    function = PAGE.split("function t(key, vars)", 1)[1].split("function setLang", 1)[0]
+    source = ('const [EN, LANGS] = JSON.parse(require("fs").readFileSync(0, "utf8")); '
+              'let lang, device; function t(key, vars)' + function +
+              'const result = {}; for (lang of ["en", ...Object.keys(LANGS)]) { '
+              'result[lang] = []; for (device of ["HX_Stomp", "HX_Stomp_XL"]) '
+              'result[lang].push(t("s1.c1s")); } process.stdout.write(JSON.stringify(result));')
+    result = subprocess.run(["node", "-e", source], input=json.dumps([EN, LANGS]),
+                            text=True, capture_output=True, check=True)
+    for lang, messages in json.loads(result.stdout).items():
+        expected = (LANGS.get(lang) or EN)["device.stompReady"]
+        assert messages == [expected, expected]
 
 
 @pytest.mark.parametrize("lang", sorted(LANGS))

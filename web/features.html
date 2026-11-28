@@ -175,7 +175,7 @@
     <td data-i18n="metronome.where">The block's Time, Level, Accent and Thru knobs</td>
     </tr>
     <tr>
-    <td><a href="#more-snapshots" data-i18n="more-snapshots.name">More Snapshots (4&#8209;6)</a></td>
+    <td><a href="#more-snapshots" data-i18n="more-snapshots.name">More Snapshots</a></td>
     <td data-i18n="more-snapshots.desc">Six snapshots per preset: press the lit snapshot footswitch again to flip between snapshots 1–3 and 4–6. Next, previous and MIDI CC 69 reach all six.</td>
     <td data-i18n="more-snapshots.floc">The snapshot footswitches, in Snapshot footswitch mode</td>
     <td>-</td>
@@ -223,7 +223,7 @@
     <td data-i18n="usb-monitoring.where">Global Settings &gt; Ins/Outs, page 3</td>
     </tr>
     <tr>
-    <td><a href="#virtual-footswitches" data-i18n="virtual-footswitches.name">Virtual Footswitches (FS6&#8209;10)</a></td>
+    <td><a href="#virtual-footswitches" data-i18n="virtual-footswitches.name">Virtual Footswitches</a></td>
     <td data-i18n="virtual-footswitches.desc">FS6–FS10, footswitches without a switch: assign blocks to them in Bypass Assign (MIDI In), and switch them by holding FS1–FS5 or with MIDI CC 20–24. Each can instead run a footswitch function, such as Bank, Snapshot or Global EQ.</td>
     <td data-i18n="virtual-footswitches.floc">A block's Bypass Assign &gt; MIDI In, or Controller Assign</td>
     <td data-i18n="virtual-footswitches.where">Global Settings &gt; Footswitches, pages 4 and 5</td>
@@ -291,6 +291,9 @@
         <figure><img src="https://github.com/user-attachments/assets/31dbeff7-c502-469d-892d-3465b1a7962a" width="480" height="360" alt="Breathing Line: Breathe, in Rainbow, on Speed Tempo: tapped at 160 BPM, then 60" data-i18n-alt="breathing-line.alt7" loading="lazy"></figure>
       </div>
       <p data-i18n="breathing-line.p1">Just for fun: the line across the middle of the Home screen, between the signal flow and the knobs, comes alive in the colours, motion and speed you pick. It starts on Rainbow, breathing once every 4 s.</p>
+          <p data-i18n="breathing-line.xl">
+            On HX Stomp XL, the line animates on both the Play and Edit screens.
+          </p>
   <ul>
   <li data-i18n="breathing-line.li1"><strong>Where it shows:</strong> on the Home screen only. Other screens stay stock, and the line stops animating while you're on them.</li>
   <li data-i18n="breathing-line.li2"><strong>The selected part of the line</strong> is still thicker, as on the stock line, and <strong>Off</strong> gives the stock line back.</li>
@@ -457,6 +460,11 @@
         <figure><img src="https://github.com/user-attachments/assets/dda82971-c7d5-4ac3-93a4-598f3714dead" width="480" height="360" alt="Holding FS2, its Hold set to Tuner, opens the tuner" data-i18n-alt="long-press.alt2" loading="lazy"></figure>
       </div>
       <p data-i18n="long-press.p1">In Stomp footswitch mode, each of FS1–FS5 can have a Hold action (Global Settings &gt; Footswitches, pages 2 and 3: FS1 Hold Function … FS5 Hold Function). Holding the switch for 1 s runs it; a tap still toggles the switch's own blocks, on release instead of on press, since the press can't tell yet whether it will become a hold. A switch with a looper on it (1 Switch Looper or Shuffling Looper) ignores its Hold action and works as stock, so the looper keeps its own press, undo and clear.</p>
+          <p data-i18n="long-press.xl">
+            On HX Stomp XL, FS1–FS8 have Hold settings, all Off by default. FS7
+            and FS8 remain external footswitches; the five virtual footswitches
+            are FS9–FS13.
+          </p>
   <ul>
   <li data-i18n="long-press.li1"><strong>Tuner</strong> opens the tuner, as holding TAP does.</li>
   <li data-i18n="long-press.li2"><strong>FS4, FS5</strong> press that footswitch, as an external switch would.</li>
@@ -580,12 +588,21 @@
     </section>
 
     <section class="card feat" id="more-snapshots">
-      <h2><img class="ico" src="../docs/assets/icons/snapshots.svg" width="91" height="28" alt=""><span data-i18n="more-snapshots.name">More Snapshots (4&#8209;6)</span></h2>
+      <h2><img class="ico" src="../docs/assets/icons/snapshots.svg" width="91" height="28" alt=""><span data-i18n="more-snapshots.name">More Snapshots</span></h2>
       <!-- demo: snapshots -->
       <div class="demos">
         <figure><img src="https://github.com/user-attachments/assets/03f0b74e-2b60-4abf-936d-90660fc1d9f7" width="480" height="360" alt="Snapshots 1 to 3, the lit footswitch again for 4 to 6, and again back to 1 to 3" data-i18n-alt="more-snapshots.alt1" loading="lazy"></figure>
       </div>
       <p data-i18n="more-snapshots.p1">With Footswitch Mode on Snapshot, the three footswitches select snapshots 1–3 as usual. Press the lit one again and the same footswitches select snapshots 4–6; press the lit one again to come back.</p>
+          <p data-i18n="more-snapshots.xl">
+            On HX Stomp XL, the banks are snapshots 1–4 and 5–8. Press the lit
+            snapshot again to switch banks; MIDI CC 69 values 0–7 select
+            snapshots 1–8. The instructions below describe the HX Stomp.
+          </p>
+          <p data-i18n="more-snapshots.xl-page">
+            On XL's Play screen, PAGE Left and Right cycle Stomp, Preset,
+            Snapshot and Looper modes. Press both PAGE buttons for Menu.
+          </p>
   <ul>
   <li data-i18n="more-snapshots.li1"><strong>Which bank you're in:</strong> in 4–6, the camera icon at the top right and the footswitch labels show 4, 5 or 6.</li>
   <li data-i18n="more-snapshots.li2"><strong>New snapshots:</strong> the first time you flip to a preset's 4–6, each one starts as a copy of the snapshot you flipped from. Edit them as any snapshot: snapshot-controlled parameters, block bypass, tempo and names are kept per snapshot.</li>
@@ -743,6 +760,11 @@
         <figure><img src="https://github.com/user-attachments/assets/d8796601-9444-49be-8038-682ba8014c33" width="480" height="360" alt="Random at 225 BPM: a new colour with each beat" data-i18n-alt="tap-led-color.alt2" loading="lazy"></figure>
       </div>
       <p data-i18n="tap-led-color.p1">The TAP footswitch's ring blinks red with the tempo, and its icon and label on the Home screen are red. Tap LED Color (Global Settings &gt; Displays, in Tap Tempo LED's place) picks another colour for all three, from the colours the HX Stomp gives its other footswitches.</p>
+          <p data-i18n="tap-led-color.xl">
+            On HX Stomp XL, TAP is a dedicated switch with no on-screen TAP icon
+            or label. The ring and setting synchronization have not yet been
+            verified on the XL.
+          </p>
   <ul>
   <li data-i18n="tap-led-color.li1"><strong>The colours</strong> are the stock footswitch palette: each ring colour is the one the HX Stomp lights for a block of that colour, and each icon the stock switch icon of that colour.</li>
   <li data-i18n="tap-led-color.li2"><strong>Rainbow</strong> moves the ring a small step round the colour wheel at each beat: 42 shades blended from the palette's Red, DkOrange, Yellow, Green, Blue and Violet, back to Red, about 21 s round at 120 BPM.</li>
@@ -808,12 +830,17 @@
     </section>
 
     <section class="card feat" id="virtual-footswitches">
-      <h2><img class="ico" src="../docs/assets/icons/long-press.svg" width="28" height="28" alt=""><span data-i18n="virtual-footswitches.name">Virtual Footswitches (FS6&#8209;10)</span></h2>
+      <h2><img class="ico" src="../docs/assets/icons/long-press.svg" width="28" height="28" alt=""><span data-i18n="virtual-footswitches.name">Virtual Footswitches</span></h2>
       <!-- demo: virtual-footswitches -->
       <div class="demos">
         <figure><img src="https://github.com/user-attachments/assets/f0261c29-ef31-4527-8d96-21ef176b67aa" width="480" height="360" alt="A block's Bypass Assign: MIDI In set to the virtual footswitch FS6, then holding FS2 toggles it" data-i18n-alt="virtual-footswitches.alt1" loading="lazy"></figure>
       </div>
       <p data-i18n="virtual-footswitches.p1">FS6–FS10 are five more footswitches with no switch of their own. Hold a real one to press one (<a href="#long-press">Foot Switch Long Press</a>), or send MIDI CC 20–24. Each has a function (Global Settings &gt; Footswitches, pages 4 and 5: FS6 Function … FS10 Function).</p>
+          <p data-i18n="virtual-footswitches.xl">
+            On HX Stomp XL, the virtual footswitches are FS9–FS13, using MIDI CC
+            20–24. FS7 and FS8 remain external footswitches. The instructions
+            below describe the HX Stomp.
+          </p>
   <ul>
   <li data-i18n="virtual-footswitches.li1"><strong>FS6 … FS10</strong> are virtual footswitches. Each toggles the blocks you assign to it: in a block's Bypass Assign, set MIDI In to FS6 … FS10 (the first five steps up from Off; the knob's label reads FootswIn while it's on one). The assignment is saved in the preset, and parameters assigned to the same footswitch through Controller Assign follow it too. They are MIDI CC 20–24 underneath, which is how HX Edit and other MIDI gear see them.</li>
   <li data-i18n="virtual-footswitches.li2"><strong>FS6 Function … FS10 Function</strong> give a virtual footswitch the same choices FS3 … FS5 Function give a real one, with <strong>Tuner</strong> (opens the tuner) in place of TAP/Tunr, since a hold has no use for a tap. <strong>Stomp</strong>, the default, toggles its blocks as above. The others do what that function does on a press and release of a real footswitch: <strong>Bank Up/Dn</strong> opens the bank in Preset mode, <strong>PresetUp/Dn</strong> and <strong>SnpshtUp/Dn</strong> step the preset or snapshot, <strong>FS Mode&gt; / &lt;FS Mode</strong> step the footswitch mode, <strong>AllBypas</strong> bypasses everything, and <strong>TogglEXP</strong> switches EXP 1/2 and toggles the virtual footswitch's blocks. <strong>GlobalEQ</strong>, which no real footswitch offers, opens Global EQ for room or stage correction; it does nothing while the tuner is open. While Global EQ is open, however you got there, a press of any footswitch goes back to Home, as one leaves the tuner, and toggles nothing. Holds act only in Stomp mode, so after a function that leaves it (FS Mode, Bank), come back with a real footswitch or the menu. A MIDI CC 20–24 from outside still toggles the blocks, whatever the function.</li>
@@ -880,6 +907,12 @@ var LANGS = {
     "tuner-settings.floc": "El afinador",
     "tuner-settings.where": "Los ajustes del afinador, página 3 (página a la derecha tras Trails, Offsets y String 6)",
     "long-press.name": "Pulsación larga de footswitch",
+    "long-press.xl": "En HX Stomp XL, FS1–FS8 tienen ajustes de pulsación larga, todos desactivados por defecto. FS7 y FS8 siguen siendo footswitches externos; los cinco virtuales son FS9–FS13.",
+    "more-snapshots.xl": "En HX Stomp XL, los bancos son los snapshots 1–4 y 5–8. Pulsa de nuevo el snapshot encendido para cambiar de banco; los valores 0–7 de MIDI CC 69 seleccionan los snapshots 1–8. Las instrucciones siguientes describen el HX Stomp.",
+    "more-snapshots.xl-page": "En la pantalla Play del XL, PAGE izquierda y derecha cambian entre los modos Stomp, Preset, Snapshot y Looper. Pulsa ambos botones PAGE para abrir el menú.",
+    "tap-led-color.xl": "En HX Stomp XL, TAP es un interruptor dedicado sin icono ni etiqueta TAP en pantalla. El aro y la sincronización del ajuste aún no se han verificado en el XL.",
+    "breathing-line.xl": "En HX Stomp XL, la línea se anima en las pantallas Play y Edit.",
+    "virtual-footswitches.xl": "En HX Stomp XL, los footswitches virtuales son FS9–FS13 y usan MIDI CC 20–24. FS7 y FS8 siguen siendo footswitches externos. Las instrucciones siguientes describen el HX Stomp.",
     "long-press.alt2": "Mantener FS2, con su Hold en Tuner, abre el afinador",
     "long-press.desc": "En modo Stomp, mantener FS1–FS5 un segundo hace otra cosa: abre el afinador, pulsa FS4 o FS5, o conmuta un footswitch virtual (por defecto, FS1 conmuta FS6, y así hasta FS5 y FS10).",
     "long-press.floc": "FS1–FS5, en el modo de footswitch Stomp",
@@ -892,7 +925,7 @@ var LANGS = {
     "metronome.desc": "Una pista de clic al tempo, como bloque: ajusta su pulso, su nivel y un tiempo fuerte acentuado, y tócalo bajo tu señal o solo.",
     "metronome.floc": "Navegador de modelos: Volume/Pan &gt; Metronome",
     "metronome.where": "Las perillas Time, Level, Accent y Thru del bloque",
-    "more-snapshots.name": "Más snapshots (4&#8209;6)",
+    "more-snapshots.name": "Más snapshots",
     "more-snapshots.desc": "Seis snapshots por preset: vuelve a pulsar el footswitch de snapshot encendido para alternar entre los snapshots 1–3 y 4–6. Siguiente, anterior y MIDI CC 69 llegan a los seis.",
     "more-snapshots.floc": "Los footswitches de snapshot, en el modo de footswitch Snapshot",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -925,7 +958,7 @@ var LANGS = {
     "usb-monitoring.desc": "Adónde va la salida del path A: al ordenador por USB 3/4, para oír tu sonido a través de tu DAW y sus plugins (Send/USB, USB Only), o a Main L/R y además a las salidas Send y a USB 3/4 (Main+Snd).",
     "usb-monitoring.floc": "La salida del path A: Main L/R, las salidas Send y USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, página 3",
-    "virtual-footswitches.name": "Footswitches virtuales (FS6&#8209;10)",
+    "virtual-footswitches.name": "Footswitches virtuales",
     "virtual-footswitches.desc": "FS6–FS10, footswitches sin interruptor físico: asígnales bloques en Bypass Assign (MIDI In) y actívalos manteniendo FS1–FS5 o con MIDI CC 20–24. En su lugar, cada uno puede ejecutar una función de footswitch, como Bank, Snapshot o Global EQ.",
     "virtual-footswitches.floc": "Bypass Assign &gt; MIDI In de un bloque, o Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, páginas 4 y 5",
@@ -1098,6 +1131,12 @@ var LANGS = {
     "tuner-settings.floc": "O afinador",
     "tuner-settings.where": "Ajustes do afinador, página 3 (avance uma página depois de Trails, Offsets e String 6)",
     "long-press.name": "Pressão longa nos footswitches",
+    "long-press.xl": "No HX Stomp XL, FS1–FS8 têm ajustes de pressão longa, todos desligados por padrão. FS7 e FS8 continuam sendo footswitches externos; os cinco virtuais são FS9–FS13.",
+    "more-snapshots.xl": "No HX Stomp XL, os bancos são os snapshots 1–4 e 5–8. Pressione o snapshot aceso novamente para trocar de banco; os valores 0–7 de MIDI CC 69 selecionam os snapshots 1–8. As instruções abaixo descrevem o HX Stomp.",
+    "more-snapshots.xl-page": "Na tela Play do XL, PAGE esquerda e direita alternam entre os modos Stomp, Preset, Snapshot e Looper. Pressione os dois botões PAGE para abrir o menu.",
+    "tap-led-color.xl": "No HX Stomp XL, TAP é um footswitch dedicado sem ícone ou etiqueta TAP na tela. O anel e a sincronização da configuração ainda não foram verificados no XL.",
+    "breathing-line.xl": "No HX Stomp XL, a linha é animada nas telas Play e Edit.",
+    "virtual-footswitches.xl": "No HX Stomp XL, os footswitches virtuais são FS9–FS13 e usam MIDI CC 20–24. FS7 e FS8 continuam sendo externos. As instruções abaixo descrevem o HX Stomp.",
     "long-press.alt2": "Segurar FS2, com o Hold em Tuner, abre o afinador",
     "long-press.desc": "No modo Stomp, segurar FS1–FS5 por um segundo faz outra coisa: abre o afinador, pressiona FS4 ou FS5, ou aciona um footswitch virtual (por padrão, FS1 aciona FS6, e assim por diante até FS5 e FS10).",
     "long-press.floc": "FS1–FS5, no modo de footswitch Stomp",
@@ -1110,7 +1149,7 @@ var LANGS = {
     "metronome.desc": "Um click no andamento, em forma de bloco: ajuste a batida, o nível e um tempo forte acentuado, e ouça-o junto com o seu sinal ou sozinho.",
     "metronome.floc": "Navegador de modelos: Volume/Pan &gt; Metronome",
     "metronome.where": "Os knobs Time, Level, Accent e Thru do bloco",
-    "more-snapshots.name": "Mais snapshots (4&#8209;6)",
+    "more-snapshots.name": "Mais snapshots",
     "more-snapshots.desc": "Seis snapshots por preset: pressione de novo o footswitch de snapshot aceso para alternar entre os snapshots 1–3 e 4–6. Próximo, anterior e MIDI CC 69 alcançam os seis.",
     "more-snapshots.floc": "Os footswitches de snapshot, no modo de footswitch Snapshot",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -1143,7 +1182,7 @@ var LANGS = {
     "usb-monitoring.desc": "Para onde vai a saída do path A: para o computador pelo USB 3/4, para você ouvir seu timbre pela DAW e pelos plugins dela (Send/USB, USB Only), ou para Main L/R e também para as saídas Send e o USB 3/4 (Main+Snd).",
     "usb-monitoring.floc": "A saída do path A: Main L/R, as saídas Send e o USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, página 3",
-    "virtual-footswitches.name": "Footswitches virtuais (FS6&#8209;10)",
+    "virtual-footswitches.name": "Footswitches virtuais",
     "virtual-footswitches.desc": "FS6–FS10, footswitches sem chave física: atribua blocos a eles em Bypass Assign (MIDI In) e acione-os segurando FS1–FS5 ou com MIDI CC 20–24. Cada um pode, em vez disso, executar uma função de footswitch, como Bank, Snapshot ou Global EQ.",
     "virtual-footswitches.floc": "Bypass Assign &gt; MIDI In de um bloco, ou Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, páginas 4 e 5",
@@ -1316,6 +1355,12 @@ var LANGS = {
     "tuner-settings.floc": "L'accordeur",
     "tuner-settings.where": "Réglages de l'accordeur, page 3 (page suivante après Trails, Offsets et String 6)",
     "long-press.name": "Appui long sur les footswitchs",
+    "long-press.xl": "Sur HX Stomp XL, FS1–FS8 disposent d'un réglage d'appui long, désactivé par défaut. FS7 et FS8 restent des footswitchs externes ; les cinq virtuels sont FS9–FS13.",
+    "more-snapshots.xl": "Sur HX Stomp XL, les banques sont les snapshots 1–4 et 5–8. Appuyez à nouveau sur le snapshot allumé pour changer de banque ; les valeurs 0–7 de MIDI CC 69 sélectionnent les snapshots 1–8. Les instructions ci-dessous concernent le HX Stomp.",
+    "more-snapshots.xl-page": "Sur l'écran Play du XL, PAGE gauche et droite parcourent les modes Stomp, Preset, Snapshot et Looper. Appuyez sur les deux boutons PAGE pour ouvrir le menu.",
+    "tap-led-color.xl": "Sur HX Stomp XL, TAP est un footswitch dédié sans icône ni étiquette TAP à l'écran. L'anneau et la synchronisation du réglage n'ont pas encore été vérifiés sur le XL.",
+    "breathing-line.xl": "Sur HX Stomp XL, la ligne s'anime sur les écrans Play et Edit.",
+    "virtual-footswitches.xl": "Sur HX Stomp XL, les footswitchs virtuels sont FS9–FS13 et utilisent MIDI CC 20–24. FS7 et FS8 restent externes. Les instructions ci-dessous concernent le HX Stomp.",
     "long-press.alt2": "Maintenir FS2, son Hold sur Tuner, ouvre l'accordeur",
     "long-press.desc": "En mode Stomp, maintenir FS1–FS5 une seconde fait autre chose : ouvrir l'accordeur, appuyer sur FS4 ou FS5, ou actionner un footswitch virtuel (par défaut, FS1 actionne FS6, et ainsi de suite jusqu'à FS5 et FS10).",
     "long-press.floc": "FS1–FS5, en mode de footswitch Stomp",
@@ -1328,7 +1373,7 @@ var LANGS = {
     "metronome.desc": "Un clic calé sur le tempo, sous forme de bloc : réglez sa pulsation, son niveau et un premier temps accentué, et jouez-le sous votre signal ou seul.",
     "metronome.floc": "Navigateur de modèles : Volume/Pan &gt; Metronome",
     "metronome.where": "Les potentiomètres Time, Level, Accent et Thru du bloc",
-    "more-snapshots.name": "Snapshots supplémentaires (4&#8209;6)",
+    "more-snapshots.name": "Snapshots supplémentaires",
     "more-snapshots.desc": "Six snapshots par preset : appuyez à nouveau sur le footswitch de snapshot allumé pour basculer entre les snapshots 1–3 et 4–6. Suivant, précédent et le MIDI CC 69 atteignent les six.",
     "more-snapshots.floc": "Les footswitchs de snapshot, en mode de footswitch Snapshot",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -1361,7 +1406,7 @@ var LANGS = {
     "usb-monitoring.desc": "La destination de la sortie du path A : l'ordinateur sur USB 3/4, pour entendre votre son à travers votre DAW et ses plugins (Send/USB, USB Only), ou Main L/R ainsi que les sorties Send et USB 3/4 (Main+Snd).",
     "usb-monitoring.floc": "La sortie du path A : Main L/R, les sorties Send et USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, page 3",
-    "virtual-footswitches.name": "Footswitchs virtuels (FS6&#8209;10)",
+    "virtual-footswitches.name": "Footswitchs virtuels",
     "virtual-footswitches.desc": "FS6–FS10, des footswitchs sans interrupteur : assignez-leur des blocs dans Bypass Assign (MIDI In), et actionnez-les en maintenant FS1–FS5 ou avec les MIDI CC 20–24. Chacun peut aussi exécuter une fonction de footswitch, comme Bank, Snapshot ou Global EQ.",
     "virtual-footswitches.floc": "Bypass Assign &gt; MIDI In d'un bloc, ou Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, pages 4 et 5",
@@ -1534,6 +1579,12 @@ var LANGS = {
     "tuner-settings.floc": "Der Tuner",
     "tuner-settings.where": "Die Einstellungen des Tuners, Seite 3 (nach rechts weiterblättern, an Trails, Offsets und String 6 vorbei)",
     "long-press.name": "Langes Drücken der Fußschalter",
+    "long-press.xl": "Beim HX Stomp XL haben FS1–FS8 eine Hold-Einstellung, die standardmäßig ausgeschaltet ist. FS7 und FS8 bleiben externe Fußschalter; die fünf virtuellen sind FS9–FS13.",
+    "more-snapshots.xl": "Beim HX Stomp XL enthalten die Bänke die Snapshots 1–4 und 5–8. Drücke den leuchtenden Snapshot erneut, um die Bank zu wechseln; MIDI-CC-69-Werte 0–7 wählen Snapshots 1–8. Die folgenden Anweisungen beschreiben den HX Stomp.",
+    "more-snapshots.xl-page": "Auf dem Play-Bildschirm des XL wechseln PAGE links und rechts zwischen Stomp, Preset, Snapshot und Looper. Drücke beide PAGE-Tasten für das Menü.",
+    "tap-led-color.xl": "Beim HX Stomp XL ist TAP ein eigener Fußschalter ohne TAP-Symbol oder Beschriftung auf dem Bildschirm. Ring und Einstellungssynchronisation wurden auf dem XL noch nicht überprüft.",
+    "breathing-line.xl": "Beim HX Stomp XL wird die Linie auf dem Play- und dem Edit-Bildschirm animiert.",
+    "virtual-footswitches.xl": "Beim HX Stomp XL sind FS9–FS13 die virtuellen Fußschalter und nutzen MIDI CC 20–24. FS7 und FS8 bleiben extern. Die folgenden Anweisungen beschreiben den HX Stomp.",
     "long-press.alt2": "FS2 halten, dessen Hold auf Tuner steht, öffnet den Tuner",
     "long-press.desc": "Im Stomp-Modus löst einsekündiges Halten von FS1–FS5 etwas anderes aus: Es öffnet den Tuner, drückt FS4 oder FS5 oder schaltet einen virtuellen Fußschalter (standardmäßig schaltet FS1 FS6, bis FS5 und FS10).",
     "long-press.floc": "FS1–FS5 im Fußschaltermodus Stomp",
@@ -1546,7 +1597,7 @@ var LANGS = {
     "metronome.desc": "Ein Click-Track im Tempo, als Block: Stell den Schlag, die Lautstärke und einen betonten Schlag ein und spiel ihn unter deinem Signal oder allein.",
     "metronome.floc": "Modell-Browser: Volume/Pan &gt; Metronome",
     "metronome.where": "Die Regler Time, Level, Accent und Thru des Blocks",
-    "more-snapshots.name": "Mehr Snapshots (4&#8209;6)",
+    "more-snapshots.name": "Mehr Snapshots",
     "more-snapshots.desc": "Sechs Snapshots pro Preset: Drück den leuchtenden Snapshot-Fußschalter noch einmal, um zwischen den Snapshots 1–3 und 4–6 zu wechseln. Weiter, Zurück und MIDI CC 69 erreichen alle sechs.",
     "more-snapshots.floc": "Die Snapshot-Fußschalter im Fußschaltermodus Snapshot",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -1579,7 +1630,7 @@ var LANGS = {
     "usb-monitoring.desc": "Wohin der Ausgang von Path A geht: über USB 3/4 an den Computer, damit du deinen Sound durch deine DAW und ihre Plugins hörst (Send/USB, USB Only), oder an Main L/R und zusätzlich an die Send-Ausgänge und USB 3/4 (Main+Snd).",
     "usb-monitoring.floc": "Der Ausgang von Path A: Main L/R, die Send-Ausgänge und USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, Seite 3",
-    "virtual-footswitches.name": "Virtuelle Fußschalter (FS6&#8209;10)",
+    "virtual-footswitches.name": "Virtuelle Fußschalter",
     "virtual-footswitches.desc": "FS6–FS10, Fußschalter ohne Schalter: Weise ihnen in Bypass Assign (MIDI In) Blöcke zu und schalte sie durch Halten von FS1–FS5 oder mit MIDI CC 20–24. Jeder kann stattdessen eine Fußschalterfunktion ausführen, etwa Bank, Snapshot oder Global EQ.",
     "virtual-footswitches.floc": "Bypass Assign &gt; MIDI In eines Blocks oder Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, Seiten 4 und 5",
@@ -1752,6 +1803,12 @@ var LANGS = {
     "tuner-settings.floc": "L'accordatore",
     "tuner-settings.where": "Le impostazioni dell'accordatore, pagina 3 (la pagina a destra dopo Trails, Offsets e String 6)",
     "long-press.name": "Pressione lunga dei footswitch",
+    "long-press.xl": "Su HX Stomp XL, FS1–FS8 hanno impostazioni di pressione lunga, tutte disattivate per impostazione predefinita. FS7 e FS8 restano footswitch esterni; i cinque virtuali sono FS9–FS13.",
+    "more-snapshots.xl": "Su HX Stomp XL, i banchi contengono gli snapshot 1–4 e 5–8. Premi di nuovo lo snapshot illuminato per cambiare banco; i valori 0–7 di MIDI CC 69 selezionano gli snapshot 1–8. Le istruzioni seguenti descrivono HX Stomp.",
+    "more-snapshots.xl-page": "Nella schermata Play di XL, PAGE sinistra e destra scorrono le modalità Stomp, Preset, Snapshot e Looper. Premi entrambi i pulsanti PAGE per il menu.",
+    "tap-led-color.xl": "Su HX Stomp XL, TAP è un footswitch dedicato senza icona o etichetta TAP sullo schermo. L'anello e la sincronizzazione dell'impostazione non sono ancora stati verificati su XL.",
+    "breathing-line.xl": "Su HX Stomp XL, la linea si anima nelle schermate Play e Edit.",
+    "virtual-footswitches.xl": "Su HX Stomp XL, i footswitch virtuali sono FS9–FS13 e usano MIDI CC 20–24. FS7 e FS8 restano esterni. Le istruzioni seguenti descrivono HX Stomp.",
     "long-press.alt2": "Tenere premuto FS2, con Hold su Tuner, apre l'accordatore",
     "long-press.desc": "In modalità Stomp, tenere premuto FS1–FS5 per un secondo fa altro: apre l'accordatore, preme FS4 o FS5 o aziona un footswitch virtuale (di default FS1 aziona FS6, fino a FS5 e FS10).",
     "long-press.floc": "FS1–FS5, in modalità footswitch Stomp",
@@ -1764,7 +1821,7 @@ var LANGS = {
     "metronome.desc": "Un click a tempo, sotto forma di blocco: imposta la suddivisione, il livello e l'accento sul battere, e suonalo sotto il tuo segnale o da solo.",
     "metronome.floc": "Browser dei modelli: Volume/Pan &gt; Metronome",
     "metronome.where": "Le manopole Time, Level, Accent e Thru del blocco",
-    "more-snapshots.name": "Più snapshot (4&#8209;6)",
+    "more-snapshots.name": "Più snapshot",
     "more-snapshots.desc": "Sei snapshot per preset: premi di nuovo il footswitch dello snapshot acceso per passare tra gli snapshot 1–3 e 4–6. Successivo, precedente e MIDI CC 69 raggiungono tutti e sei.",
     "more-snapshots.floc": "I footswitch degli snapshot, in modalità footswitch Snapshot",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -1797,7 +1854,7 @@ var LANGS = {
     "usb-monitoring.desc": "Dove va l'uscita del path A: al computer su USB 3/4, così senti il tuo suono attraverso la DAW e i suoi plugin (Send/USB, USB Only), oppure su Main L/R e anche alle uscite Send e su USB 3/4 (Main+Snd).",
     "usb-monitoring.floc": "L'uscita del path A: Main L/R, le uscite Send e USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, pagina 3",
-    "virtual-footswitches.name": "Footswitch virtuali (FS6&#8209;10)",
+    "virtual-footswitches.name": "Footswitch virtuali",
     "virtual-footswitches.desc": "FS6–FS10, footswitch senza un interruttore fisico: assegna loro dei blocchi in Bypass Assign (MIDI In) e azionali tenendo premuto FS1–FS5 o con MIDI CC 20–24. Ognuno può invece eseguire una funzione da footswitch, come Bank, Snapshot o Global EQ.",
     "virtual-footswitches.floc": "Bypass Assign &gt; MIDI In di un blocco, o Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, pagine 4 e 5",
@@ -1970,6 +2027,12 @@ var LANGS = {
     "tuner-settings.floc": "チューナー",
     "tuner-settings.where": "チューナーの設定の 3 ページ目（Trails、Offsets、String 6 のページから右へ送った先）",
     "long-press.name": "フットスイッチ長押し",
+    "long-press.xl": "HX Stomp XL では FS1–FS8 に長押し設定があり、初期値はすべてオフです。FS7 と FS8 は外部フットスイッチのままで、5 つの仮想スイッチは FS9–FS13 です。",
+    "more-snapshots.xl": "HX Stomp XL のバンクはスナップショット 1–4 と 5–8 です。点灯中のスナップショットを再度押すと切り替わります。MIDI CC 69 の値 0–7 でスナップショット 1–8 を選択できます。以下は HX Stomp の説明です。",
+    "more-snapshots.xl-page": "XL の Play 画面では、左右の PAGE で Stomp、Preset、Snapshot、Looper モードを切り替えます。両方の PAGE を押すとメニューが開きます。",
+    "tap-led-color.xl": "HX Stomp XL の TAP は専用スイッチで、画面上に TAP のアイコンやラベルはありません。リングと設定の同期は XL 実機ではまだ検証されていません。",
+    "breathing-line.xl": "HX Stomp XL では、ラインは Play 画面と Edit 画面の両方でアニメーションします。",
+    "virtual-footswitches.xl": "HX Stomp XL の仮想フットスイッチは FS9–FS13 で、MIDI CC 20–24 を使います。FS7 と FS8 は外部スイッチのままです。以下は HX Stomp の説明です。",
     "long-press.alt2": "Hold を Tuner にした FS2 の長押しでチューナーが開きます",
     "long-press.desc": "Stomp モードでは、FS1–FS5 を 1 秒押し続けると別の動作をします。チューナーを開く、FS4 や FS5 を押す、仮想フットスイッチを切り替える、のいずれかです（初期設定では FS1 で FS6、以下同様に FS5 で FS10 を切り替えます）。",
     "long-press.floc": "FS1–FS5（Stomp フットスイッチ・モード時）",
@@ -1982,7 +2045,7 @@ var LANGS = {
     "metronome.desc": "テンポに合わせて鳴るクリック・トラックをブロックとして使えます。拍の間隔、音量、アクセントを付けるダウンビートを設定し、自分の音の下で鳴らすことも、クリックだけを鳴らすこともできます。",
     "metronome.floc": "モデルブラウザ：Volume/Pan &gt; Metronome",
     "metronome.where": "ブロックの Time、Level、Accent、Thru ノブ",
-    "more-snapshots.name": "スナップショット追加 (4&#8209;6)",
+    "more-snapshots.name": "スナップショット追加",
     "more-snapshots.desc": "プリセットごとに 6 つのスナップショットを使えます。点灯中のスナップショット・フットスイッチをもう一度押すと、スナップショット 1–3 と 4–6 が切り替わります。次・前への移動と MIDI CC 69 で 6 つすべてを選べます。",
     "more-snapshots.floc": "スナップショット・フットスイッチ（Snapshot フットスイッチ・モード時）",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -2015,7 +2078,7 @@ var LANGS = {
     "usb-monitoring.desc": "Path A の出力先を選びます。USB 3/4 でコンピューターに送り、DAW とそのプラグインを通した音を聴く（Send/USB、USB Only）か、Main L/R に出しつつ Send 端子と USB 3/4 にも送る（Main+Snd）かです。",
     "usb-monitoring.floc": "Path A の出力：Main L/R、Send 端子、USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs、3 ページ目",
-    "virtual-footswitches.name": "仮想フットスイッチ (FS6&#8209;10)",
+    "virtual-footswitches.name": "仮想フットスイッチ",
     "virtual-footswitches.desc": "FS6–FS10 は物理スイッチのないフットスイッチです。Bypass Assign (MIDI In) でブロックを割り当て、FS1–FS5 の長押しか MIDI CC 20–24 で切り替えます。代わりに Bank、Snapshot、Global EQ などのフットスイッチ機能を割り当てることもできます。",
     "virtual-footswitches.floc": "ブロックの Bypass Assign &gt; MIDI In、または Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches、4 ページ目と 5 ページ目",
@@ -2188,6 +2251,12 @@ var LANGS = {
     "tuner-settings.floc": "调音器",
     "tuner-settings.where": "调音器设置第 3 页（在 Trails、Offsets 和 String 6 那一页向右翻一页）",
     "long-press.name": "脚踏开关长按",
+    "long-press.xl": "HX Stomp XL 的 FS1–FS8 均有长按设置，默认关闭。FS7 和 FS8 仍为外接脚踏开关；五个虚拟开关为 FS9–FS13。",
+    "more-snapshots.xl": "HX Stomp XL 的两个组分别为快照 1–4 和 5–8。再次按下亮起的快照可切换组；MIDI CC 69 的值 0–7 可选择快照 1–8。以下说明适用于 HX Stomp。",
+    "more-snapshots.xl-page": "在 XL 的 Play 屏幕上，左右 PAGE 按钮循环切换 Stomp、Preset、Snapshot 和 Looper 模式。同时按下两个 PAGE 按钮打开菜单。",
+    "tap-led-color.xl": "HX Stomp XL 的 TAP 是独立开关，屏幕上没有 TAP 图标或标签。指示灯环和设置同步尚未在 XL 实机上验证。",
+    "breathing-line.xl": "在 HX Stomp XL 上，线条动画显示在 Play 和 Edit 屏幕上。",
+    "virtual-footswitches.xl": "HX Stomp XL 的虚拟脚踏开关为 FS9–FS13，使用 MIDI CC 20–24。FS7 和 FS8 仍为外接开关。以下说明适用于 HX Stomp。",
     "long-press.alt2": "按住 Hold 设为 Tuner 的 FS2 打开调音器",
     "long-press.desc": "在 Stomp 模式下，按住 FS1–FS5 一秒会执行另一项操作：打开调音器、按下 FS4 或 FS5，或切换一个虚拟脚踏开关（默认 FS1 切换 FS6，依此类推，直到 FS5 切换 FS10）。",
     "long-press.floc": "FS1–FS5，在 Stomp 脚踏开关模式下",
@@ -2200,7 +2269,7 @@ var LANGS = {
     "metronome.desc": "以模块形式提供、与速度同步的节拍音：设置节拍、音量和加重音的强拍，可以叠在你的信号下播放，也可以单独播放。",
     "metronome.floc": "模型浏览器：Volume/Pan &gt; Metronome",
     "metronome.where": "模块的 Time、Level、Accent 和 Thru 旋钮",
-    "more-snapshots.name": "更多快照 (4&#8209;6)",
+    "more-snapshots.name": "更多快照",
     "more-snapshots.desc": "每个预设六个快照：再次踩下亮着的快照脚踏开关，即可在快照 1–3 和 4–6 之间切换。下一个、上一个和 MIDI CC 69 都能选到全部六个。",
     "more-snapshots.floc": "快照脚踏开关，在 Snapshot 脚踏开关模式下",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -2233,7 +2302,7 @@ var LANGS = {
     "usb-monitoring.desc": "决定 Path A 输出的去向：经 USB 3/4 送到电脑，让你通过 DAW 及其插件听到自己的音色（Send/USB、USB Only）；或送到 Main L/R，同时也送到 Send 接口和 USB 3/4（Main+Snd）。",
     "usb-monitoring.floc": "Path A 的输出：Main L/R、Send 接口和 USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs，第 3 页",
-    "virtual-footswitches.name": "虚拟脚踏开关 (FS6&#8209;10)",
+    "virtual-footswitches.name": "虚拟脚踏开关",
     "virtual-footswitches.desc": "FS6–FS10 是没有实体开关的脚踏开关：在 Bypass Assign（MIDI In）中把模块分配给它们，然后按住 FS1–FS5 或用 MIDI CC 20–24 切换。每个也可以改为执行一项脚踏开关功能，例如 Bank、Snapshot 或 Global EQ。",
     "virtual-footswitches.floc": "模块的 Bypass Assign &gt; MIDI In，或 Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches，第 4 和第 5 页",
@@ -2406,6 +2475,12 @@ var LANGS = {
     "tuner-settings.floc": "튜너",
     "tuner-settings.where": "튜너 설정 3페이지 (Trails, Offsets, String 6 페이지에서 오른쪽으로 넘긴 페이지)",
     "long-press.name": "풋스위치 길게 누르기",
+    "long-press.xl": "HX Stomp XL에서는 FS1–FS8에 길게 누르기 설정이 있으며 기본값은 모두 Off입니다. FS7과 FS8은 외부 풋스위치로 유지되고 가상 스위치 다섯 개는 FS9–FS13입니다.",
+    "more-snapshots.xl": "HX Stomp XL의 뱅크는 스냅샷 1–4와 5–8입니다. 켜진 스냅샷을 다시 눌러 뱅크를 전환하며 MIDI CC 69 값 0–7로 스냅샷 1–8을 선택합니다. 아래 설명은 HX Stomp 기준입니다.",
+    "more-snapshots.xl-page": "XL의 Play 화면에서 왼쪽과 오른쪽 PAGE 버튼으로 Stomp, Preset, Snapshot, Looper 모드를 순환합니다. 두 PAGE 버튼을 함께 누르면 메뉴가 열립니다.",
+    "tap-led-color.xl": "HX Stomp XL의 TAP은 전용 스위치이며 화면에 TAP 아이콘이나 라벨이 없습니다. 링과 설정 동기화는 아직 XL 실기기에서 확인되지 않았습니다.",
+    "breathing-line.xl": "HX Stomp XL에서는 Play와 Edit 화면 모두에서 선이 움직입니다.",
+    "virtual-footswitches.xl": "HX Stomp XL의 가상 풋스위치는 FS9–FS13이며 MIDI CC 20–24를 사용합니다. FS7과 FS8은 외부 스위치로 유지됩니다. 아래 설명은 HX Stomp 기준입니다.",
     "long-press.alt2": "Hold를 Tuner로 둔 FS2를 길게 누르면 튜너가 열립니다",
     "long-press.desc": "Stomp 모드에서 FS1–FS5를 1초 동안 누르고 있으면 다른 동작을 합니다. 튜너를 열거나, FS4나 FS5를 누르거나, 가상 풋스위치를 전환합니다(기본값은 FS1이 FS6을 전환하고, 같은 식으로 FS5는 FS10까지).",
     "long-press.floc": "Stomp 풋스위치 모드의 FS1–FS5",
@@ -2418,7 +2493,7 @@ var LANGS = {
     "metronome.desc": "템포에 맞춰 울리는 클릭 트랙 블록입니다. 박자, 레벨, 강세를 줄 첫 박을 정하고, 내 신호 아래에 깔거나 클릭만 단독으로 재생합니다.",
     "metronome.floc": "모델 브라우저: Volume/Pan &gt; Metronome",
     "metronome.where": "블록의 Time, Level, Accent, Thru 노브",
-    "more-snapshots.name": "스냅샷 추가 (4&#8209;6)",
+    "more-snapshots.name": "스냅샷 추가",
     "more-snapshots.desc": "프리셋당 스냅샷 6개: 불이 켜진 스냅샷 풋스위치를 다시 누르면 스냅샷 1–3과 4–6 사이를 오갑니다. 다음, 이전, MIDI CC 69로 여섯 개 모두에 접근할 수 있습니다.",
     "more-snapshots.floc": "Snapshot 풋스위치 모드의 스냅샷 풋스위치",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -2451,7 +2526,7 @@ var LANGS = {
     "usb-monitoring.desc": "Path A 출력을 보낼 곳: USB 3/4로 컴퓨터에 보내 DAW와 플러그인을 거친 톤을 듣거나(Send/USB, USB Only), Main L/R와 함께 Send 잭과 USB 3/4에도 보냅니다(Main+Snd).",
     "usb-monitoring.floc": "Path A 출력: Main L/R, Send 잭, USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, 3페이지",
-    "virtual-footswitches.name": "가상 풋스위치 (FS6&#8209;10)",
+    "virtual-footswitches.name": "가상 풋스위치",
     "virtual-footswitches.desc": "FS6–FS10은 실제 스위치가 없는 풋스위치입니다. Bypass Assign(MIDI In)에서 블록을 할당하고, FS1–FS5를 길게 누르거나 MIDI CC 20–24로 전환합니다. 대신 Bank, Snapshot, Global EQ 같은 풋스위치 기능을 실행하게 할 수도 있습니다.",
     "virtual-footswitches.floc": "블록의 Bypass Assign &gt; MIDI In 또는 Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, 4페이지와 5페이지",
@@ -2624,6 +2699,12 @@ var LANGS = {
     "tuner-settings.floc": "Тюнер",
     "tuner-settings.where": "Настройки тюнера, страница 3 (листайте вправо после Trails, Offsets и String 6)",
     "long-press.name": "Долгое нажатие футсвича",
+    "long-press.xl": "На HX Stomp XL настройки удержания есть у FS1–FS8 и по умолчанию выключены. FS7 и FS8 остаются внешними футсвичами; пять виртуальных — это FS9–FS13.",
+    "more-snapshots.xl": "На HX Stomp XL банки содержат снапшоты 1–4 и 5–8. Повторно нажмите горящий снапшот для переключения банка; значения MIDI CC 69 от 0 до 7 выбирают снапшоты 1–8. Инструкции ниже относятся к HX Stomp.",
+    "more-snapshots.xl-page": "На экране Play XL кнопки PAGE влево и вправо переключают режимы Stomp, Preset, Snapshot и Looper. Нажмите обе кнопки PAGE для открытия меню.",
+    "tap-led-color.xl": "На HX Stomp XL TAP — отдельный футсвич без значка или подписи TAP на экране. Кольцо и синхронизация настройки ещё не проверены на XL.",
+    "breathing-line.xl": "На HX Stomp XL линия анимируется на экранах Play и Edit.",
+    "virtual-footswitches.xl": "На HX Stomp XL виртуальные футсвичи — FS9–FS13, они используют MIDI CC 20–24. FS7 и FS8 остаются внешними. Инструкции ниже относятся к HX Stomp.",
     "long-press.alt2": "Удержание FS2 с Hold на Tuner открывает тюнер",
     "long-press.desc": "В режиме Stomp удержание FS1–FS5 в течение секунды выполняет другое действие: открывает тюнер, нажимает FS4 или FS5 или переключает виртуальный футсвич (по умолчанию FS1 переключает FS6, и так до FS5 и FS10).",
     "long-press.floc": "FS1–FS5 в режиме футсвичей Stomp",
@@ -2636,7 +2717,7 @@ var LANGS = {
     "metronome.desc": "Клик-трек в темп, в виде блока: задайте долю, громкость и акцентированную сильную долю и слушайте его вместе со своим сигналом или отдельно.",
     "metronome.floc": "Браузер моделей: Volume/Pan &gt; Metronome",
     "metronome.where": "Ручки Time, Level, Accent и Thru блока",
-    "more-snapshots.name": "Больше снапшотов (4&#8209;6)",
+    "more-snapshots.name": "Больше снапшотов",
     "more-snapshots.desc": "Шесть снапшотов на пресет: нажмите горящий футсвич снапшота ещё раз, чтобы переключиться между снапшотами 1–3 и 4–6. Следующий/предыдущий снапшот и MIDI CC 69 работают со всеми шестью.",
     "more-snapshots.floc": "Футсвичи снапшотов в режиме футсвичей Snapshot",
     "nam-a2-lite.name": "NAM A2 Lite",
@@ -2669,7 +2750,7 @@ var LANGS = {
     "usb-monitoring.desc": "Куда идёт выход path A: на компьютер по USB 3/4, чтобы слышать свой звук через DAW и её плагины (Send/USB, USB Only), или на Main L/R, а заодно на выходы Send и USB 3/4 (Main+Snd).",
     "usb-monitoring.floc": "Выход path A: Main L/R, выходы Send и USB 3/4",
     "usb-monitoring.where": "Global Settings &gt; Ins/Outs, страница 3",
-    "virtual-footswitches.name": "Виртуальные футсвичи (FS6&#8209;10)",
+    "virtual-footswitches.name": "Виртуальные футсвичи",
     "virtual-footswitches.desc": "FS6–FS10 — футсвичи без физической кнопки: назначайте им блоки в Bypass Assign (MIDI In) и переключайте их удержанием FS1–FS5 или через MIDI CC 20–24. Вместо этого каждый может выполнять функцию футсвича, например Bank, Snapshot или Global EQ.",
     "virtual-footswitches.floc": "Bypass Assign &gt; MIDI In блока или Controller Assign",
     "virtual-footswitches.where": "Global Settings &gt; Footswitches, страницы 4 и 5",
@@ -2830,13 +2911,17 @@ var LANG_NAMES = {
     alts.forEach(function (n) { n.alt = t(lang, n.getAttribute("data-i18n-alt")); });
     document.title = t(lang, "doc.title");
     menu.value = lang;
-    try { localStorage.setItem("lang", lang); } catch (e) { /* private mode */ }
+          try { localStorage.setItem("lang", lang); } catch (e) {
+            /* private mode */
+          }
   }
   // The setup page's choice carries over: both pages keep it in localStorage "lang".
   function pickLang() {
     var q = /[?&]lang=(\w+)/.exec(location.search);
     if (q && LANGS[q[1]]) return q[1];
-    try { var saved = localStorage.getItem("lang"); if (saved && (saved === "en" || LANGS[saved])) return saved; } catch (e) { /* none */ }
+          try { var saved = localStorage.getItem("lang"); if (saved && (saved === "en" || LANGS[saved])) return saved; } catch (e) {
+            /* none */
+          }
     var prefs = navigator.languages || [navigator.language || "en"];
     for (var i = 0; i < prefs.length; i++) {
       var c = String(prefs[i]).toLowerCase().split("-")[0];

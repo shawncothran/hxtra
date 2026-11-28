@@ -2,9 +2,9 @@
 @ and Volume's teal for its footswitch, whose block category, Metronome, has none.
 .syntax unified
 .thumb
+.include "metronome.inc"
 .equ PRESET_ID, 181                 @ tools/patch_click.py PRESET_ID
 .equ PLAIN, 5                       @ Modulation, the Tremolo it is copied from: outside the add switch's 8..0x11
-.equ BLOCK_CATEGORY, 0x28e0f065     @ (model, preset ID, &category) -> <0 on error; 0x19 for a model without Entry 3's category
 .equ VOLUME, 0x0e                   @ Volume's block category, teal like the Metronome's
 .equ METRONOME, 0x19                @ the Metronome's block category: tools/features/metronome.py METRONOME
 

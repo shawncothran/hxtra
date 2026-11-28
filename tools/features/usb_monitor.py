@@ -8,10 +8,13 @@ the setting inside USB Input Trim (trim + 1000 * (mode + 1)), which src/sharc/us
 (tools/patch_usbmon.py; USB Only silences the Send jacks' writer, Main+Snd adds Main into the Send jacks' words). A preset saved meanwhile holds Send for path A, which a stock unit refuses on load, leaving path
 A on Main. A turn or a reset of the setting sends path A's destination again at once. A checkbox in the web page's DSP features
 (WEB 'dsp': its DSP code takes Block 3 room, tools/block3.py) and HX_USB_MONITOR for build.py."""
+import types
+
 from features import Setting
 import patch_menu as pm
 
 FLAG = 'HX_USB_MONITOR'
+XL_PORTED = True
 WEB = 'dsp'
 MENU = 'Ins/Outs'
 SETTINGS = (     # Ins/Outs' last empty slot; a label's last line shows on top
@@ -24,13 +27,24 @@ CHANGED = 0x28dceb30                # (view, ID): the Global Settings slot repai
 CHANGED_STOCK = bytes.fromhex('70b5 1029')          # push {r4-r6, lr}; cmp r1, #0x10
 PAGE = 0x28dce854                   # (view): the Global Settings page repaint, as after a click's reset
 PAGE_STOCK = bytes.fromhex('2de9 f047')             # push.w {r4-r10, lr}
+STOMP = types.SimpleNamespace(send=SEND_FN, changed=CHANGED, page=PAGE, engine=0x28d92a98, output=0x28e03c68,
+                              find=0x28df35a0, param_send=0x28df35e8, get=pm.GET_VALUE)
+XL = types.SimpleNamespace(send=0x28dfb884, changed=0x28dd45e0, page=0x28dd4304, engine=0x28d95248, output=0x28e09d88,
+                           find=0x28df96c4, param_send=0x28df970c, get=0x28e25c70)
+
+
+def monitor_inc(profile):
+    addresses = {'ENGINE': profile.engine, 'SET_OUTPUT': profile.output, 'PARAM_FIND': profile.find,
+                 'PARAM_SEND': profile.param_send, 'GET_VALUE': profile.get}
+    return ''.join(f'.equ {name}, {address | 1:#x}\n' for name, address in addresses.items())
 
 
 def apply(p):
-    hook = p.own_entry(SEND_FN, SEND_FN_STOCK, 'the send of a path\'s destination to the DSP')
-    m = p.module('src/m4/usb_monitor.s')
-    p.chain_entry(CHANGED, CHANGED_STOCK, after=m['um_changed'])
-    p.chain_entry(PAGE, PAGE_STOCK, after=m['um_page'])
+    profile = XL if getattr(p, 'layout', pm.STOMP_MENU).base == pm.XL_MENU.base else STOMP
+    hook = p.own_entry(profile.send, SEND_FN_STOCK, 'the send of a path\'s destination to the DSP')
+    m = p.module('src/m4/usb_monitor.s', inc={'usb_monitor.inc': monitor_inc(profile)})
+    p.chain_entry(profile.changed, CHANGED_STOCK, after=m['um_changed'])
+    p.chain_entry(profile.page, PAGE_STOCK, after=m['um_page'])
     a = pm.Asm(p.next())
     a.movw_movt(12, hook.stock | 1)
     a.bw(m['um_send'])

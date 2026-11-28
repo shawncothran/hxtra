@@ -193,6 +193,17 @@ def test_only_entry2_changes(patched):
 
 
 @pytest.mark.firmware
+def test_xl_monitor_uses_the_same_dsp_payload(patched):
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    xl = pa.load_l6ia_from_any(path)[0]
+    out = pu.patch_dsp(xl, **QUIET)
+    assert pa.get_entry_swapped(out, 2) == pa.get_entry_swapped(patched[1], 2)
+    assert all(pa.get_entry_swapped(out, index) == pa.get_entry_swapped(xl, index) for index in (0, 3, 4))
+
+
+@pytest.mark.firmware
 def test_usb_input_trim_reaches_two_level_gains_as_it_comes():
     """usbInGain0_1 (string 4209, slot 56): a float input node straight to writers [99] and [105], pid 1, members the root's 98 and
     104 in blob 0, both 0x80; blob 1 does not override them."""

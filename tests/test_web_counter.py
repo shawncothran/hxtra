@@ -85,12 +85,12 @@ def test_build_counts_every_choice_on_and_off():
 
 def test_download_counts_each_build_once():
     click = snippet('$("fwSave").addEventListener("click"', "});")
-    assert "if (!built.counted) { built.counted = true; countBuild(built); }" in click
+    assert re.search(r"if \(!built\.counted\)\s*\{\s*built\.counted = true;\s*countBuild\(built\);\s*\}", click)
 
 
 def test_choices_are_taken_when_the_build_starts():
-    assert "var picked = { choices: choices(), slots: dsp ? slotsPicked() : 3 };" in PAGE
-    assert "choices: picked.choices, slots: picked.slots, pinned: m.pinned };" in PAGE
+    assert 'var picked = { choices: choices(), slots: dsp ? slotsPicked() : 3 };' in PAGE
+    assert re.search(r"choices: picked\.choices,\s*slots: picked\.slots,\s*pinned: m\.pinned,?\s*};", PAGE)
 
 
 def test_no_event_carries_a_file_or_unit():

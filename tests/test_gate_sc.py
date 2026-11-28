@@ -17,9 +17,11 @@ import m4cache
 import patch_amp as pa
 import patch_comp as pc
 import patch_gate as pg
+import patch_menu as pm
 import patch_sidechain as sc
 import sasm
 import ssim
+import setting_ids
 from features import gate_sidechain
 from test_gate import DEFAULT_E3, QUIET, build_steps, entries, ldr_blocks, stock_l6ia, table1, ui_counts
 
@@ -374,6 +376,36 @@ def test_entry0_counts_and_costs(sided):
     for name in sc.MODELS:
         m = pa.find_model(info, name)
         assert ui_counts(new, m['words'][2]) == (len(m['params']) + 1,) * 3
+
+
+@pytest.mark.firmware
+def test_xl_sidechain_uses_shared_dsp_and_updates_its_model_tables():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    stomp = stock_l6ia()
+    xl = pa.load_l6ia_from_any(path)[0]
+    outputs = [sc.patch_sidechain(sc.patch_dsp(data, **QUIET), **QUIET) for data in (stomp, xl)]
+    for entry in (2, 3, 4):
+        assert pa.get_entry_swapped(outputs[0], entry) == pa.get_entry_swapped(outputs[1], entry)
+    old, new = table1(xl), table1(outputs[1])
+    info = entries(xl)[0]
+    for name in sc.MODELS:
+        model = pa.find_model(info, name)
+        index = model['words'][2]
+        assert new[index] == (old[index][0], old[index][1] + sc.SC_COST * (2 if 'Stereo' in name else 1))
+        assert ui_counts(outputs[1], index) == (len(model['params']) + 1,) * 3
+
+
+@pytest.mark.firmware
+def test_xl_menu_gate_allows_input_sidechain():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda index: pa.get_entry_swapped(archive, index)
+    _, enabled = pm.menu_entries(load, features.load(), {'HX_GATE_SC': '1'}, setting_ids.by_name(), layout=pm.XL_MENU)
+    assert gate_sidechain in enabled
 
 
 @pytest.mark.firmware

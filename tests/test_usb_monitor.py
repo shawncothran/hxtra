@@ -3,13 +3,16 @@ Send/USB or USB Only, everything else untouched; the setting sent after path A's
 or a reset sending path A again only when the destination or the mode changes), the firmware it builds (its setting in
 Ins/Outs, the virtual setting, the hooks), and the stock facts the trim rests on (USB In 1/2 Trim is I/O setting 0x99, read from
 the I/O store as the stock setters send it)."""
+import os
 import struct
 
 import pytest
 
 import features
+import patch_amp as pa
 import setting_ids
 from features import usb_monitor as um
+from features import splash
 import patch_menu as pm
 from firmware import assert_virtual, branch_target, built, built_e0, reader, stock_e0
 from test_hxtra import page_table
@@ -43,19 +46,22 @@ class Monitor:
     record in the I/O store, as the stock getter does; self.trim is USB In 1/2 Trim's record (None: GET_VALUE fails); the stock
     send, ENGINE and SET_OUTPUT logged."""
 
-    def __init__(self, m4emu):
-        if 'um' not in _code:
-            _code['um'] = m4emu.assemble('src/m4/usb_monitor.s', MODS, IDS)
-        code, self.sym = _code['um']
+    def __init__(self, m4emu, profile=um.STOMP, layout=pm.STOMP_MENU):
+        self.profile = profile
+        key = profile.send
+        if key not in _code:
+            _code[key] = m4emu.assemble('src/m4/usb_monitor.s', MODS, IDS,
+                                       inc={'usb_monitor.inc': um.monitor_inc(profile)}, layout=layout)
+        code, self.sym = _code[key]
         self.m = m4emu.M4(code, MOD)
         self.value, self.trim = None, -12.5
-        self.m.stub(GET_VALUE, self.get_value)
+        self.m.stub(profile.get, self.get_value)
         self.m.stub(STOCK, lambda m: m.reg('r0', 0x55))
-        self.m.stub(ENGINE, lambda m: m.reg('r0', 0x2844adcc))
-        self.m.stub(SET_OUTPUT)
+        self.m.stub(profile.engine, lambda m: m.reg('r0', 0x2844adcc))
+        self.m.stub(profile.output)
         self.has_param, self.modes = True, []
-        self.m.stub(PARAM_FIND, self.find)
-        self.m.stub(PARAM_SEND, self.param)
+        self.m.stub(profile.find, self.find)
+        self.m.stub(profile.param_send, self.param)
         self.m.map(DATA, 0x4000)
         self.m.u32(CTX + 0xc, PCTX - 4)
         self.m.u32(APP + 0xac8, INST)
@@ -109,9 +115,9 @@ class Monitor:
 
     def apply(self, sym, *args):
         """The SET_OUTPUT calls (engine, position, value) a handler made."""
-        before = len(self.m.calls(SET_OUTPUT))
+        before = len(self.m.calls(self.profile.output))
         self.m.call(MOD + self.sym[sym], *args)
-        return [tuple(r[:3]) for r in self.m.calls(SET_OUTPUT)[before:]]
+        return [tuple(r[:3]) for r in self.m.calls(self.profile.output)[before:]]
 
 
 @pytest.fixture
@@ -180,6 +186,40 @@ def test_no_mode_without_the_trim_parameter(mon):
     mon.has_param = False
     assert mon.send(CTX, APP, 0, MAIN)[3] == SEND
     assert mon.modes == []
+
+
+def test_xl_monitor_uses_the_same_signal_routing(m4emu):
+    mon = Monitor(m4emu, um.XL, pm.XL_MENU)
+    for mode, destination in ((0, MAIN), (SEND_USB, SEND), (USB_ONLY, SEND), (MAIN_SEND, MAIN)):
+        mon.value = mode
+        assert mon.send(CTX, APP, 0, MAIN)[3] == destination
+        assert mon.modes[-1] == (TRIM_TYPE, mode, -12.5)
+    mon.value = SEND_USB
+    assert mon.apply('um_changed', 0x3333, ID) == [(0x2844adcc, 9, MAIN)]
+
+
+@pytest.mark.firmware
+def test_xl_firmware_routes_monitor_and_settings():
+    path = os.environ.get('HX_STOMP_XL_HXF')
+    if not path:
+        pytest.skip('HX_STOMP_XL_HXF is not set')
+    archive = pa.load_l6ia_from_any(path)[0]
+    load = lambda n: pa.get_entry_swapped(archive, n)
+    stock = reader(load(0))
+    profile = um.XL
+    assert stock(profile.send, 4) == um.SEND_FN_STOCK
+    assert stock(profile.send + 0x4a, 4) == bytes.fromhex('d6f8c81a')
+    assert branch_target(profile.send + 0x5a, stock(profile.send + 0x5a, 4)) == profile.param_send
+    assert stock(profile.find, 6) == bytes.fromhex('084611461a46')
+    entries, on = pm.menu_entries(load, [splash, um], {'HX_USB_MONITOR': '1'}, IDS, layout=pm.XL_MENU)
+    assert um in on
+    read = reader(entries[0])
+    for fn in (profile.send, profile.changed, profile.page):
+        assert branch_target(fn, read(fn, 4)) >= pm.XL_MENU.base
+    stock_ids = (0x1f, 0x5e, 2, 3, 0x9a, 0x99, 0x9e, 0x9c)
+    for site in pm.XL_MENU.sites:
+        table = page_table(read, 0, site, pm.XL_MENU)
+        assert struct.unpack('<9H', read(table, 18)) == (*stock_ids, ID)
 
 
 def test_send_usb_to_usb_only_sends_again(mon):
